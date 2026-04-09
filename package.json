@@ -1,0 +1,22 @@
+{
+  "name": "berry-claw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An AI agent product built on berry-agent-sdk — validating the SDK by eating our own dog food",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@berry-agent/core": "^0.1.1-alpha.0",
+    "@berry-agent/safe": "^0.1.0-alpha.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "@types/node": "^22.0.0"
+  }
+}
