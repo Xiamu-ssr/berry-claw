@@ -1,36 +1,85 @@
-# berry-claw 🐾
+# Berry-Claw 🐾
 
-An AI agent product built on [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk) — validating the SDK by eating our own dog food.
+AI agent product built on [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk) — eating our own dog food.
 
-## Purpose
+## What It Does
 
-This is the **first consumer** of `@berry-agent/core` and `@berry-agent/safe`. The goal is to:
-
-1. Prove the SDK works end-to-end in a real product
-2. Expose API design issues that only surface under real usage
-3. Feed improvements back to the SDK
+A web-based AI agent with chat UI, multi-provider support, and full observability dashboard.
 
 ## Architecture
 
 ```
-src/
-  agent/     — Agent configuration, system prompts, skill loading
-  server/    — HTTP/WebSocket server (API layer)
-  tools/     — Custom tools (file ops, shell, search, etc.)
-  main.ts    — Entry point
+Web UI (React + Vite)  ←→  WebSocket + REST  ←→  server.ts
+                                                     ↓
+                                              AgentManager
+                                           ↙       ↓        ↘
+                                  ConfigManager  Agent    Observer
+                                  (providers)   (core)   (observe)
+                                                  ↓
+                                            tools-common
+                                        (10 pre-built tools)
 ```
 
-**Three-layer design:**
-- **Agent layer**: Pure `@berry-agent/core` usage — no HTTP, no UI
-- **Server layer**: HTTP/WS API that wraps the agent for external consumers
-- **Tools layer**: Tool implementations that the agent can call
+## SDK Integration
 
-## Stack
+| SDK Package | Usage in Berry-Claw |
+|-------------|-------------------|
+| @berry-agent/core | Agent loop, sessions, providers |
+| @berry-agent/tools-common | All tools (zero custom tool code) |
+| @berry-agent/observe | `createObserveRouter()` — one line to add 14 API endpoints |
+| @berry-agent/safe | `compositeGuard(directoryScope, denyList)` |
 
-- `@berry-agent/core` — Agent loop, providers, compaction
-- `@berry-agent/safe` — Guards, PI probe
-- TypeScript + tsx (dev runtime)
+**Backend**: 793 lines — because the SDK does the heavy lifting.
+
+## Features
+
+- **Multi-provider**: Register Anthropic/OpenAI/etc., route by model name
+- **Multi-agent**: Create/switch/inspect agents with different configs
+- **Chat**: WebSocket streaming, tool call display, session switching with history
+- **Observe Dashboard**: Powered by @berry-agent/observe UI (cost, cache, guard, compaction, inference detail, sessions, agents)
+- **Settings**: Provider/agent management UI
+
+## Run
+
+```bash
+# Backend
+npm install
+npm run dev          # http://localhost:3210
+
+# Frontend
+cd web && npm install
+npm run dev          # http://localhost:3211
+```
+
+## Config
+
+`~/.berry-claw/config.json`:
+
+```json
+{
+  "providers": {
+    "anthropic": {
+      "type": "anthropic",
+      "apiKey": "sk-...",
+      "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250414"]
+    }
+  },
+  "agents": {
+    "default": {
+      "model": "claude-sonnet-4-20250514",
+      "workspace": "~/.berry-claw/workspace"
+    }
+  }
+}
+```
+
+## Tests
+
+```bash
+npm test                    # 39 unit tests
+npm run test:integration    # 8 integration tests (needs API keys)
+```
 
 ## Status
 
-🚧 Under construction — SDK validation phase.
+Alpha — functional but rough edges. Primary purpose is SDK validation.

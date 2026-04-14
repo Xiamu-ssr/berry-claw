@@ -3,15 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "src",
     "resolveJsonModule": true,
-    "declaration": true,
-    "sourceMap": true
+    "isolatedModules": true,
+    "noEmit": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "web"]
+  "include": ["src"]
 }

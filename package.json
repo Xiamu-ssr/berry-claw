@@ -2,21 +2,35 @@
   "name": "berry-claw",
   "version": "0.1.0",
   "private": true,
-  "description": "An AI agent product built on berry-agent-sdk — validating the SDK by eating our own dog food",
+  "description": "AI agent product built on berry-agent-sdk",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts",
+    "dev": "concurrently \"tsx watch src/main.ts\" \"cd web && npm run dev\"",
+    "dev:server": "tsx watch src/main.ts",
+    "dev:web": "cd web && npm run dev",
+    "build": "cd web && npm run build",
+    "start": "NODE_ENV=production tsx src/main.ts",
     "test": "vitest run"
   },
   "dependencies": {
-    "@berry-agent/core": "^0.1.1-alpha.0",
-    "@berry-agent/safe": "^0.1.0-alpha.0"
+    "@berry-agent/core": "file:../berry-agent-sdk/packages/core",
+    "@berry-agent/observe": "file:../berry-agent-sdk/packages/observe",
+    "@berry-agent/safe": "file:../berry-agent-sdk/packages/safe",
+    "@berry-agent/tools-common": "file:../berry-agent-sdk/packages/tools-common",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "nanoid": "^5.1.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.0",
+    "concurrently": "^9.0.0",
+    "dotenv": "^17.4.1",
     "tsx": "^4.19.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.2.4"
   }
 }
