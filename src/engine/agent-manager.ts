@@ -63,6 +63,8 @@ export class AgentManager {
       : SYSTEM_PROMPT;
 
     // Build tools based on config
+    // TODO: respect entry.tools config (e.g., ["file", "shell", "search", "browser"])
+    // Currently always uses createAllTools() regardless of config
     const tools = createAllTools(workspace);
 
     const agent = new Agent({
