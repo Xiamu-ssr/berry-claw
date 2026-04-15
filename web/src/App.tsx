@@ -3,19 +3,23 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import ObserveDashboard from './components/ObserveDashboard';
 import SettingsPage from './components/SettingsPage';
+import ToastContainer from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { ChatMessage, SessionInfo, ToolCallInfo, WsIncoming } from './types';
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamingText, setStreamingText] = useState('');
+  const [thinkingText, setThinkingText] = useState('');
+  const [pendingTools, setPendingTools] = useState<ToolCallInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>();
   const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'settings'>('chat');
 
-  // Pending tool calls for current assistant message
+  // Ref mirrors for use inside the 'done' closure
   const pendingToolsRef = useRef<ToolCallInfo[]>([]);
+  const thinkingTextRef = useRef('');
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -37,33 +41,43 @@ export default function App() {
       case 'start':
         setIsLoading(true);
         setStreamingText('');
+        setThinkingText('');
+        setPendingTools([]);
         pendingToolsRef.current = [];
+        thinkingTextRef.current = '';
         break;
 
       case 'text_delta':
         setStreamingText((prev) => prev + msg.text);
         break;
 
-      case 'tool_call':
-        pendingToolsRef.current.push({
-          name: msg.name,
-          input: msg.input,
-        });
-        // Show tool call in streaming area
-        setStreamingText((prev) => prev);
+      case 'thinking_delta':
+        thinkingTextRef.current += msg.thinking;
+        setThinkingText(thinkingTextRef.current);
         break;
 
-      case 'tool_result':
-        // Update the last matching tool call with result
-        const tools = pendingToolsRef.current;
-        const lastMatch = [...tools].reverse().find(t => t.name === msg.name);
-        if (lastMatch) {
-          lastMatch.isError = msg.isError;
-        }
+      case 'tool_call': {
+        const newTool: ToolCallInfo = { name: msg.name, input: msg.input };
+        pendingToolsRef.current = [...pendingToolsRef.current, newTool];
+        setPendingTools([...pendingToolsRef.current]);
         break;
+      }
+
+      case 'tool_result': {
+        const updated = pendingToolsRef.current.map(t => {
+          if (t.name === msg.name && t.isError === undefined) {
+            return { ...t, isError: msg.isError };
+          }
+          return t;
+        });
+        pendingToolsRef.current = updated;
+        setPendingTools([...updated]);
+        break;
+      }
 
       case 'done': {
         const text = streamingTextRef.current;
+        const thinking = thinkingTextRef.current;
         const toolCalls = [...pendingToolsRef.current];
         setMessages((prev) => [
           ...prev,
@@ -73,13 +87,17 @@ export default function App() {
             content: text,
             timestamp: Date.now(),
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            thinking: thinking || undefined,
             usage: msg.usage,
           },
         ]);
         setStreamingText('');
+        setThinkingText('');
+        setPendingTools([]);
         setIsLoading(false);
         setActiveSessionId(msg.sessionId);
         pendingToolsRef.current = [];
+        thinkingTextRef.current = '';
         fetchSessions();
         break;
       }
@@ -90,12 +108,16 @@ export default function App() {
           {
             id: genId(),
             role: 'assistant',
-            content: `❌ Error: ${msg.message}`,
+            content: `Error: ${msg.message}`,
             timestamp: Date.now(),
           },
         ]);
         setStreamingText('');
+        setThinkingText('');
+        setPendingTools([]);
         setIsLoading(false);
+        pendingToolsRef.current = [];
+        thinkingTextRef.current = '';
         break;
 
       case 'session_cleared':
@@ -155,7 +177,8 @@ export default function App() {
   );
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen bg-white dark:bg-gray-900">
+      <ToastContainer />
       {/* Sidebar */}
       <Sidebar
         sessions={sessions}
@@ -167,7 +190,7 @@ export default function App() {
       />
 
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 pt-14 md:pt-0">
         {/* Connection status */}
         {!connected && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-700">
@@ -179,6 +202,8 @@ export default function App() {
           <ChatArea
             messages={messages}
             streamingText={streamingText}
+            thinkingText={thinkingText}
+            pendingTools={pendingTools}
             isLoading={isLoading}
             onSend={handleSend}
           />

@@ -4,7 +4,7 @@
 import { Agent, FileSessionStore } from '@berry-agent/core';
 import type { ProviderConfig, AgentEvent, QueryResult, ToolDefinition } from '@berry-agent/core';
 import { compositeGuard, directoryScope, denyList } from '@berry-agent/safe';
-import { createObserver, type Observer } from '@berry-agent/observe';
+import { createObserver, type Observer, type ModelPricing } from '@berry-agent/observe';
 import { createAllTools } from '@berry-agent/tools-common';
 import { SYSTEM_PROMPT } from '../agent/prompt.js';
 import { ConfigManager, type AgentEntry } from './config-manager.js';
@@ -28,7 +28,16 @@ export class AgentManager {
   constructor() {
     this.config = new ConfigManager();
     this.sessions = new SessionManager();
-    this.observer = createObserver({ dbPath: join(this.config.appDir, 'observe.db') });
+    // Model name aliases: zenmux proxies use "provider/model" naming, map to standard pricing
+    const sonnet4: ModelPricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+    const haiku4: ModelPricing = { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 };
+    const pricingOverrides: Record<string, ModelPricing> = {
+      'anthropic/claude-sonnet-4-20250514': sonnet4,
+      'anthropic/claude-sonnet-4.6': sonnet4,
+      'anthropic/claude-haiku-4-20250414': haiku4,
+      'anthropic/claude-haiku-4.5': haiku4,
+    };
+    this.observer = createObserver({ dbPath: join(this.config.appDir, 'observe.db'), pricingOverrides });
     this.activeAgentId = this.config.defaultAgent;
   }
 

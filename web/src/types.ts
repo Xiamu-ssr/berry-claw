@@ -1,5 +1,6 @@
 export interface SessionInfo {
   id: string;
+  title?: string;
   startTime?: number;
   endTime?: number | null;
   totalCost?: number;
@@ -13,12 +14,24 @@ export interface SessionInfo {
   lastActiveAt?: number;
 }
 
+export interface AgentInfo {
+  id: string;
+  entry: { name: string; model: string; workspace?: string; systemPrompt?: string };
+}
+
+export interface ModelInfo {
+  model: string;
+  providerName: string;
+  type: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   toolCalls?: ToolCallInfo[];
+  thinking?: string;
   usage?: { inputTokens: number; outputTokens: number };
 }
 

@@ -15,6 +15,7 @@ export interface ChatMessage {
 
 export interface SessionState {
   id: string;
+  title?: string;
   messages: ChatMessage[];
   createdAt: number;
   lastActiveAt: number;
@@ -62,6 +63,10 @@ export class SessionManager {
     };
     state.messages.push(msg);
     state.lastActiveAt = Date.now();
+    // Auto-generate title from first user message
+    if (!state.title) {
+      state.title = prompt.length > 30 ? prompt.slice(0, 30) + '...' : prompt;
+    }
     return msg;
   }
 
