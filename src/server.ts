@@ -50,10 +50,16 @@ export function startServer(port: number) {
   /** Add/update a provider */
   app.put('/api/config/providers/:name', (req, res) => {
     const { type, baseUrl, apiKey, models } = req.body;
-    if (!type || !apiKey || !models?.length) {
-      return res.status(400).json({ error: 'type, apiKey, and models[] required' });
+    if (!type || !models?.length) {
+      return res.status(400).json({ error: 'type and models[] required' });
     }
-    manager.config.setProvider(req.params.name, { type, baseUrl, apiKey, models });
+    // apiKey is optional for updates — keep existing if not provided
+    const existing = manager.config.get().providers[req.params.name];
+    const resolvedApiKey: string = apiKey || existing?.apiKey;
+    if (!resolvedApiKey) {
+      return res.status(400).json({ error: 'apiKey required for new providers' });
+    }
+    manager.config.setProvider(req.params.name, { type, baseUrl, apiKey: resolvedApiKey, models });
     // Re-init agent with new config
     try {
       manager.initAgent();
