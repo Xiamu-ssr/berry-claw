@@ -81,6 +81,7 @@ export class AgentManager {
       systemPrompt,
       tools,
       cwd: workspace,
+      workspace,
       skillDirs: entry.skillDirs,
       sessionStore: new FileSessionStore(sessionsDir),
       toolGuard: compositeGuard(
