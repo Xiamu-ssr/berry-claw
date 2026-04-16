@@ -29,7 +29,6 @@ export interface AppConfig {
   agents: Record<string, AgentEntry>;
   defaultModel: string;
   defaultAgent: string;
-  workspace: string;       // global default workspace
 }
 
 const APP_DIR = join(homedir(), '.berry-claw');
@@ -37,16 +36,9 @@ const CONFIG_PATH = join(APP_DIR, 'config.json');
 
 const DEFAULT_CONFIG: AppConfig = {
   providers: {},
-  agents: {
-    default: {
-      name: 'Berry Claw',
-      model: '',
-      tools: ['file', 'shell', 'search'],
-    },
-  },
+  agents: {},
   defaultModel: '',
-  defaultAgent: 'default',
-  workspace: join(APP_DIR, 'workspace'),
+  defaultAgent: '',
 };
 
 export class ConfigManager {
@@ -62,15 +54,18 @@ export class ConfigManager {
 
     if (existsSync(CONFIG_PATH)) {
       const raw = readFileSync(CONFIG_PATH, 'utf-8');
-      this.config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+      // Drop legacy 'workspace' field if present
+      const parsed = JSON.parse(raw);
+      delete parsed.workspace;
+      this.config = { ...DEFAULT_CONFIG, ...parsed };
     } else {
       this.config = { ...DEFAULT_CONFIG };
       this.save();
     }
 
-    if (!existsSync(this.config.workspace)) {
-      mkdirSync(this.config.workspace, { recursive: true });
-    }
+    // Ensure agents directory exists
+    const agentsDir = join(APP_DIR, 'agents');
+    if (!existsSync(agentsDir)) mkdirSync(agentsDir, { recursive: true });
   }
 
   get(): AppConfig { return { ...this.config }; }
@@ -138,8 +133,17 @@ export class ConfigManager {
 
   // ===== Agents =====
 
+  /** Create or update an agent. Auto-creates workspace at ~/.berry-claw/agents/{id}/ */
   setAgent(id: string, entry: AgentEntry): void {
+    // Auto-assign workspace if not set
+    if (!entry.workspace) {
+      entry.workspace = join(this.appDir, 'agents', id);
+    }
     this.config.agents[id] = entry;
+    // Ensure workspace directory exists
+    if (!existsSync(entry.workspace)) {
+      mkdirSync(entry.workspace, { recursive: true });
+    }
     this.save();
   }
 
@@ -160,7 +164,12 @@ export class ConfigManager {
     return Object.entries(this.config.agents).map(([id, entry]) => ({ id, entry }));
   }
 
-  get workspace(): string { return this.config.workspace; }
+  /** Get workspace for a specific agent (defaults to ~/.berry-claw/agents/{id}/) */
+  agentWorkspace(agentId?: string): string {
+    const id = agentId ?? this.config.defaultAgent;
+    const agent = this.config.agents[id];
+    return agent?.workspace ?? join(this.appDir, 'agents', id);
+  }
   get defaultModel(): string { return this.config.defaultModel; }
   get defaultAgent(): string { return this.config.defaultAgent; }
   get isConfigured(): boolean {

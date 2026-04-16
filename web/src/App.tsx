@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import ObserveDashboard from './components/ObserveDashboard';
 import SettingsPage from './components/SettingsPage';
+import AgentsPage from './components/AgentsPage';
 import ToastContainer from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { ChatMessage, SessionInfo, ToolCallInfo, WsIncoming } from './types';
@@ -15,7 +16,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>();
-  const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'settings'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'settings'>('chat');
 
   // Ref mirrors for use inside the 'done' closure
   const pendingToolsRef = useRef<ToolCallInfo[]>([]);
@@ -210,6 +211,8 @@ export default function App() {
         )}
 
         {activeTab === 'observe' && <ObserveDashboard />}
+
+        {activeTab === 'agents' && <AgentsPage />}
 
         {activeTab === 'settings' && <SettingsPage />}
       </div>

@@ -1,15 +1,15 @@
 import { useState } from 'react';
-import { Plus, MessageSquare, BarChart3, Settings, Menu, X } from 'lucide-react';
+import { Plus, MessageSquare, BarChart3, Settings, Menu, X, Bot } from 'lucide-react';
 import AgentSelector from './AgentSelector';
 import type { SessionInfo } from '../types';
 
 interface SidebarProps {
   sessions: SessionInfo[];
   activeSessionId?: string;
-  activeTab: 'chat' | 'observe' | 'settings';
+  activeTab: 'chat' | 'observe' | 'agents' | 'settings';
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
-  onTabChange: (tab: 'chat' | 'observe' | 'settings') => void;
+  onTabChange: (tab: 'chat' | 'observe' | 'agents' | 'settings') => void;
 }
 
 export default function Sidebar({
@@ -22,7 +22,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const handleTabChange = (tab: 'chat' | 'observe' | 'settings') => {
+  const handleTabChange = (tab: 'chat' | 'observe' | 'agents' | 'settings') => {
     onTabChange(tab);
     setMobileOpen(false);
   };
@@ -66,6 +66,11 @@ export default function Sidebar({
             icon={<MessageSquare size={20} />}
             active={activeTab === 'chat'}
             onClick={() => handleTabChange('chat')}
+          />
+          <NavIcon
+            icon={<Bot size={20} />}
+            active={activeTab === 'agents'}
+            onClick={() => handleTabChange('agents')}
           />
           <NavIcon
             icon={<BarChart3 size={20} />}

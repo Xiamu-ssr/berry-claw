@@ -42,7 +42,6 @@ export function startServer(port: number) {
     res.json({
       configured: manager.config.isConfigured,
       defaultModel: manager.config.defaultModel,
-      workspace: manager.config.workspace,
       models: manager.config.listModels(),
     });
   });
@@ -87,14 +86,7 @@ export function startServer(port: number) {
     res.json({ ok: true, model, provider: resolved.providerName });
   });
 
-  /** Set workspace */
-  app.put('/api/config/workspace', (req, res) => {
-    const { workspace } = req.body;
-    if (!workspace) return res.status(400).json({ error: 'workspace required' });
-    manager.config.update({ workspace });
-    try { manager.initAgent(); } catch { /* ok */ }
-    res.json({ ok: true, workspace });
-  });
+  // Legacy workspace endpoint removed — each agent has its own workspace
 
   /** List all available models */
   app.get('/api/models', (_req, res) => {
@@ -251,7 +243,7 @@ export function startServer(port: number) {
 
   server.listen(port, () => {
     console.log(`🐾 Berry-Claw server at http://localhost:${port}`);
-    console.log(`📁 Workspace: ${manager.config.workspace}`);
+    console.log(`📁 Agents dir: ${join(manager.config.appDir, 'agents')}`);
     if (manager.config.isConfigured) {
       console.log(`🤖 Default model: ${manager.config.defaultModel}`);
     } else {
@@ -263,6 +255,12 @@ export function startServer(port: number) {
 }
 
 async function handleChat(ws: WebSocket, manager: AgentManager, prompt: string, sessionId?: string) {
+  // Reject chat if no agent is configured
+  if (!manager.activeAgent || !manager.config.getAgent(manager.activeAgent)) {
+    ws.send(JSON.stringify({ type: 'error', message: 'No agent configured. Create an agent first.' }));
+    return;
+  }
+
   ws.send(JSON.stringify({ type: 'start' }));
 
   try {
