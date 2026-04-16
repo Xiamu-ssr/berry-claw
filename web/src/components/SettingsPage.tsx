@@ -368,149 +368,15 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ===== Agents Section ===== */}
+      {/* ===== Agents Section (moved to Agents tab) ===== */}
       <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-            <Bot size={20} /> Agents
-          </h2>
-          {!showAgentForm && (
-            <button onClick={startAddAgent} className="px-3 py-1.5 bg-berry-600 hover:bg-berry-700 text-white rounded-lg text-sm font-medium flex items-center gap-1.5">
-              <Plus size={14} /> Add Agent
-            </button>
-          )}
-        </div>
-
-        {/* Agent list */}
-        {agents.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {agents.map((a) => (
-              <div key={a.id} className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
-                a.id === activeAgent
-                  ? 'border-berry-300 dark:border-berry-700 bg-berry-50 dark:bg-berry-900/30'
-                  : 'border-gray-200 dark:border-gray-700'
-              }`}>
-                <div>
-                  <span className="font-medium text-gray-800 dark:text-gray-200">{a.entry.name}</span>
-                  <span className="text-xs text-gray-400 ml-2 font-mono">{a.entry.model}</span>
-                  {a.entry.workspace && <span className="text-xs text-gray-400 ml-2">{a.entry.workspace}</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  {a.id !== activeAgent && (
-                    <button onClick={() => activateAgent(a.id)} className="text-xs px-3 py-1 bg-berry-100 dark:bg-berry-900 text-berry-700 dark:text-berry-300 rounded-lg hover:bg-berry-200 dark:hover:bg-berry-800">
-                      Activate
-                    </button>
-                  )}
-                  {a.id === activeAgent && (
-                    <span className="text-xs px-3 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-lg">Active</span>
-                  )}
-                  <button
-                    onClick={() => startEditAgent(a)}
-                    className="text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
-                    title="Edit agent"
-                  >
-                    <Pencil size={15} />
-                  </button>
-                  <button onClick={() => deleteAgent(a.id)} className="text-gray-400 hover:text-red-500 transition-colors">
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Add / Edit agent form */}
-        {showAgentForm && (
-          <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                {editingAgent ? `Edit: ${editingAgent}` : 'New Agent'}
-              </p>
-              <button onClick={cancelAgentEdit} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input
-                className="settings-input"
-                placeholder="Display name"
-                value={agentForm.name}
-                onChange={e => handleAgentNameChange(e.target.value)}
-              />
-              <div className="relative">
-                <input
-                  className="settings-input w-full pr-14"
-                  placeholder="Agent ID (auto-generated)"
-                  value={agentForm.id}
-                  readOnly={!!editingAgent}
-                  onChange={e => {
-                    if (!editingAgent) setAgentForm(prev => ({ ...prev, id: e.target.value, idManual: true }));
-                  }}
-                />
-                {!editingAgent && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">
-                    {agentForm.idManual ? 'custom' : 'auto'}
-                  </span>
-                )}
-              </div>
-              {status && status.models.length > 0 ? (
-                <select
-                  className="settings-input sm:col-span-2"
-                  value={agentForm.model}
-                  onChange={e => setAgentForm({ ...agentForm, model: e.target.value })}
-                >
-                  <option value="">Select model…</option>
-                  {status.models.map(m => (
-                    <option key={m.model} value={m.model}>{m.model} ({m.providerName})</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="settings-input sm:col-span-2"
-                  placeholder="Model (e.g. gpt-4o) — add a provider first"
-                  value={agentForm.model}
-                  onChange={e => setAgentForm({ ...agentForm, model: e.target.value })}
-                />
-              )}
-              <input
-                className="settings-input sm:col-span-2"
-                placeholder={`Workspace (default: ${status?.workspace ?? '~'})`}
-                value={agentForm.workspace}
-                onChange={e => setAgentForm({ ...agentForm, workspace: e.target.value })}
-              />
-              <textarea
-                className="settings-input sm:col-span-2 min-h-[80px]"
-                placeholder="System prompt (optional — uses default if empty)"
-                value={agentForm.systemPrompt}
-                onChange={e => setAgentForm({ ...agentForm, systemPrompt: e.target.value })}
-              />
-            </div>
-            <div className="flex gap-2 mt-3">
-              <button onClick={saveAgent} className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg text-sm font-medium flex items-center gap-2">
-                {editingAgent ? <Check size={16} /> : <Plus size={16} />}
-                {editingAgent ? 'Save Changes' : 'Add Agent'}
-              </button>
-              <button onClick={cancelAgentEdit} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ===== Workspace Section ===== */}
-      <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
-          <FolderOpen size={20} /> Workspace
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2 mb-2">
+          <Bot size={20} /> Agents
         </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Current workspace:{' '}
-          <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-gray-700 dark:text-gray-300">
-            {status?.workspace ?? '—'}
-          </code>
-        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Agent management has moved to the <strong>Agents</strong> tab (🤖 icon in the sidebar).</p>
       </section>
+
+
 
       {/* Shared input styles */}
       <style>{`
