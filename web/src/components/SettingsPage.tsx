@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Check, Server, Bot, FolderOpen, Moon, Sun, Pencil, X } from 'lucide-react';
+import { Plus, Trash2, Check, Server, Bot, Moon, Sun, Pencil, X } from 'lucide-react';
 import { showToast } from './Toast';
 
 // ===== Types =====
@@ -20,42 +20,21 @@ interface ProviderInfo {
   models: string[];
 }
 
-interface AgentForm {
-  id: string;
-  name: string;
-  model: string;
-  workspace: string;
-  systemPrompt: string;
-  idManual: boolean;
-}
-
 interface ConfigStatus {
   configured: boolean;
   defaultModel: string;
-  workspace: string;
   models: Array<{ model: string; providerName: string; type: string }>;
-}
-
-interface AgentInfo {
-  id: string;
-  entry: { name: string; model: string; workspace?: string; systemPrompt?: string };
 }
 
 // ===== Helpers =====
 
-const slugify = (s: string) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
 const emptyProviderForm = (): ProviderForm => ({ name: '', type: 'openai', baseUrl: '', apiKey: '', models: '' });
-const emptyAgentForm = (): AgentForm => ({ id: '', name: '', model: '', workspace: '', systemPrompt: '', idManual: false });
 
 // ===== Component =====
 
 export default function SettingsPage() {
   const [status, setStatus] = useState<ConfigStatus | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [activeAgent, setActiveAgent] = useState('');
   const [darkMode, setDarkMode] = useState(() =>
     document.documentElement.classList.contains('dark'),
   );
@@ -64,22 +43,14 @@ export default function SettingsPage() {
   const [providerForm, setProviderForm] = useState<ProviderForm>(emptyProviderForm());
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
 
-  // Agent form state
-  const [agentForm, setAgentForm] = useState<AgentForm>(emptyAgentForm());
-  const [editingAgent, setEditingAgent] = useState<string | null>(null);
-  const [showAgentForm, setShowAgentForm] = useState(false);
-
   useEffect(() => { refresh(); }, []);
 
   const refresh = async () => {
-    const [s, a, cfg] = await Promise.all([
+    const [s, cfg] = await Promise.all([
       fetch('/api/config/status').then(r => r.json()),
-      fetch('/api/agents').then(r => r.json()),
       fetch('/api/config').then(r => r.json()),
     ]);
     setStatus(s);
-    setAgents(a.agents?.map((x: { id: string; entry: AgentInfo['entry'] }) => ({ id: x.id, entry: x.entry })) ?? []);
-    setActiveAgent(a.activeAgent ?? '');
     const providerList: ProviderInfo[] = Object.entries(cfg.providers ?? {}).map(
       ([name, v]) => {
         const entry = v as { type: 'anthropic' | 'openai'; baseUrl?: string; apiKey: string; models: string[] };
@@ -141,57 +112,6 @@ export default function SettingsPage() {
     refresh();
   };
 
-  // ===== Agent Actions =====
-
-  const startAddAgent = () => {
-    setEditingAgent(null);
-    setAgentForm(emptyAgentForm());
-    setShowAgentForm(true);
-  };
-
-  const startEditAgent = (a: AgentInfo) => {
-    setEditingAgent(a.id);
-    setAgentForm({ id: a.id, name: a.entry.name, model: a.entry.model, workspace: a.entry.workspace ?? '', systemPrompt: a.entry.systemPrompt ?? '', idManual: true });
-    setShowAgentForm(true);
-  };
-
-  const cancelAgentEdit = () => {
-    setEditingAgent(null);
-    setAgentForm(emptyAgentForm());
-    setShowAgentForm(false);
-  };
-
-  const saveAgent = async () => {
-    if (!agentForm.id || !agentForm.name || !agentForm.model) {
-      showToast('Fill in name and model', 'error'); return;
-    }
-    await fetch(`/api/agents/${agentForm.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: agentForm.name,
-        model: agentForm.model,
-        workspace: agentForm.workspace || undefined,
-        systemPrompt: agentForm.systemPrompt || undefined,
-      }),
-    });
-    showToast(editingAgent ? 'Agent updated' : 'Agent saved');
-    cancelAgentEdit();
-    refresh();
-  };
-
-  const deleteAgent = async (id: string) => {
-    await fetch(`/api/agents/${id}`, { method: 'DELETE' });
-    showToast('Agent removed');
-    refresh();
-  };
-
-  const activateAgent = async (id: string) => {
-    await fetch(`/api/agents/${id}/activate`, { method: 'POST' });
-    showToast(`Switched to ${id}`);
-    refresh();
-  };
-
   const setDefaultModel = async (model: string) => {
     await fetch('/api/config/model', {
       method: 'PUT',
@@ -200,10 +120,6 @@ export default function SettingsPage() {
     });
     showToast(`Default model: ${model}`);
     refresh();
-  };
-
-  const handleAgentNameChange = (name: string) => {
-    setAgentForm(prev => ({ ...prev, name, id: prev.idManual ? prev.id : slugify(name) }));
   };
 
   return (
@@ -368,15 +284,13 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* ===== Agents Section (moved to Agents tab) ===== */}
+      {/* ===== Agents Reference ===== */}
       <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2 mb-2">
           <Bot size={20} /> Agents
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400">Agent management has moved to the <strong>Agents</strong> tab (🤖 icon in the sidebar).</p>
       </section>
-
-
 
       {/* Shared input styles */}
       <style>{`
