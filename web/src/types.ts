@@ -46,7 +46,8 @@ export interface ToolCallInfo {
 export type WsOutgoing =
   | { type: 'chat'; prompt: string; sessionId?: string }
   | { type: 'new_session' }
-  | { type: 'resume_session'; sessionId: string };
+  | { type: 'resume_session'; sessionId: string }
+  | { type: 'interject'; text: string };
 
 export type AgentStatus =
   | 'idle'
@@ -55,6 +56,7 @@ export type AgentStatus =
   | 'compacting'
   | 'memory_flushing'
   | 'delegating'
+  | 'sleeping'
   | 'error';
 
 export interface TodoItem {
@@ -75,4 +77,5 @@ export type WsIncoming =
   | { type: 'done'; sessionId: string; usage: any; totalUsage: any; toolCalls: number }
   | { type: 'error'; message: string }
   | { type: 'session_cleared' }
-  | { type: 'session_resumed'; sessionId: string; messages?: ChatMessage[] };
+  | { type: 'session_resumed'; sessionId: string; messages?: ChatMessage[] }
+  | { type: 'interject_acked'; text: string };

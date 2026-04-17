@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { AgentManager } from './engine/agent-manager.js';
 import { createObserveRouter } from '@berry-agent/observe';
 import type { AgentEvent } from '@berry-agent/core';
+import { WEB_SEARCH_CREDENTIAL_META, type CredentialKeyMeta } from '@berry-agent/tools-common';
 
 export function startServer(port: number) {
   const manager = new AgentManager();
@@ -91,13 +92,12 @@ export function startServer(port: number) {
   // ============================
   // Credentials API
   // ============================
-  // Known credential keys. Keep in sync with tool-common credential registries.
-  const KNOWN_CREDENTIAL_KEYS = [
-    // Web search providers
-    { key: 'TAVILY_API_KEY', category: 'web_search', provider: 'Tavily', url: 'https://tavily.com' },
-    { key: 'BRAVE_API_KEY', category: 'web_search', provider: 'Brave Search', url: 'https://brave.com/search/api' },
-    { key: 'SERPAPI_API_KEY', category: 'web_search', provider: 'SerpAPI', url: 'https://serpapi.com' },
-  ] as const;
+  // Single source of truth: SDK tool-common registries. Merge all categories
+  // here so the product doesn't keep a parallel list.
+  const KNOWN_CREDENTIAL_KEYS: readonly CredentialKeyMeta[] = [
+    ...WEB_SEARCH_CREDENTIAL_META,
+    // Add other categories here as the SDK grows (e.g. browser auth tokens).
+  ];
 
   /** List known credential keys + whether each is configured */
   app.get('/api/credentials', (_req, res) => {
@@ -301,6 +301,20 @@ export function startServer(port: number) {
               ws.send(JSON.stringify({ type: 'error', message: err.message }));
             }
             break;
+          case 'interject': {
+            const text = typeof msg.text === 'string' ? msg.text : '';
+            if (!text.trim()) {
+              ws.send(JSON.stringify({ type: 'error', message: 'interject text required' }));
+              break;
+            }
+            try {
+              manager.getAgent().interject(text);
+              ws.send(JSON.stringify({ type: 'interject_acked', text }));
+            } catch (err: any) {
+              ws.send(JSON.stringify({ type: 'error', message: err.message }));
+            }
+            break;
+          }
         }
       } catch (err: any) {
         ws.send(JSON.stringify({ type: 'error', message: err.message }));
