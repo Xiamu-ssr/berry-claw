@@ -48,6 +48,21 @@ export type WsOutgoing =
   | { type: 'new_session' }
   | { type: 'resume_session'; sessionId: string };
 
+export type AgentStatus =
+  | 'idle'
+  | 'thinking'
+  | 'tool_executing'
+  | 'compacting'
+  | 'memory_flushing'
+  | 'delegating'
+  | 'error';
+
+export interface TodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
+}
+
 export type WsIncoming =
   | { type: 'start' }
   | { type: 'text_delta'; text: string }
@@ -55,6 +70,8 @@ export type WsIncoming =
   | { type: 'tool_call'; name: string; input: unknown }
   | { type: 'tool_result'; name: string; isError: boolean }
   | { type: 'api_call'; messages: number; tools: number }
+  | { type: 'status_change'; status: AgentStatus; detail?: string }
+  | { type: 'todo_updated'; sessionId: string; todos: TodoItem[]; timestamp: number }
   | { type: 'done'; sessionId: string; usage: any; totalUsage: any; toolCalls: number }
   | { type: 'error'; message: string }
   | { type: 'session_cleared' }

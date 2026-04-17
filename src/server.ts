@@ -335,6 +335,17 @@ async function handleChat(ws: WebSocket, manager: AgentManager, prompt: string, 
           case 'tool_result':
             ws.send(JSON.stringify({ type: 'tool_result', name: event.name, isError: event.isError }));
             break;
+          case 'status_change':
+            ws.send(JSON.stringify({ type: 'status_change', status: event.status, detail: event.detail }));
+            break;
+          case 'todo_updated':
+            ws.send(JSON.stringify({
+              type: 'todo_updated',
+              sessionId: event.sessionId,
+              todos: event.todos,
+              timestamp: event.timestamp,
+            }));
+            break;
         }
       },
     });

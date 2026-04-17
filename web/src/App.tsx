@@ -6,7 +6,7 @@ import SettingsPage from './components/SettingsPage';
 import AgentsPage from './components/AgentsPage';
 import ToastContainer from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
-import type { ChatMessage, SessionInfo, ToolCallInfo, WsIncoming } from './types';
+import type { AgentStatus, ChatMessage, SessionInfo, ToolCallInfo, TodoItem, WsIncoming } from './types';
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -17,6 +17,9 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>();
   const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'settings'>('chat');
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
+  const [agentStatusDetail, setAgentStatusDetail] = useState<string | undefined>(undefined);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
 
   // Ref mirrors for use inside the 'done' closure
   const pendingToolsRef = useRef<ToolCallInfo[]>([]);
@@ -75,6 +78,15 @@ export default function App() {
         setPendingTools([...updated]);
         break;
       }
+
+      case 'status_change':
+        setAgentStatus(msg.status);
+        setAgentStatusDetail(msg.detail);
+        break;
+
+      case 'todo_updated':
+        setTodos(msg.todos);
+        break;
 
       case 'done': {
         const text = streamingTextRef.current;
@@ -199,6 +211,11 @@ export default function App() {
           </div>
         )}
 
+        {/* Agent status badge (hidden when idle) */}
+        {activeTab === 'chat' && agentStatus !== 'idle' && (
+          <AgentStatusBadge status={agentStatus} detail={agentStatusDetail} />
+        )}
+
         {activeTab === 'chat' && (
           <ChatArea
             messages={messages}
@@ -216,6 +233,29 @@ export default function App() {
 
         {activeTab === 'settings' && <SettingsPage />}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// AgentStatusBadge — strip between connection bar and chat area
+// ============================================================
+function AgentStatusBadge({ status, detail }: { status: AgentStatus; detail?: string }) {
+  const config: Record<AgentStatus, { label: string; emoji: string; cls: string }> = {
+    idle:            { label: 'Idle',              emoji: '🟢', cls: 'bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700' },
+    thinking:        { label: 'Thinking',          emoji: '💡', cls: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800' },
+    tool_executing:  { label: 'Running tool',      emoji: '🔨', cls: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800' },
+    compacting:      { label: 'Compacting context', emoji: '📚', cls: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800' },
+    memory_flushing: { label: 'Flushing memory',   emoji: '🧠', cls: 'bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-900/20 dark:text-pink-300 dark:border-pink-800' },
+    delegating:      { label: 'Delegating',        emoji: '👥', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800' },
+    error:           { label: 'Error',             emoji: '❌', cls: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800' },
+  };
+  const c = config[status];
+  return (
+    <div className={`border-b px-4 py-1.5 text-xs flex items-center gap-2 ${c.cls}`}>
+      <span className="animate-pulse">{c.emoji}</span>
+      <span className="font-medium">{c.label}</span>
+      {detail && <span className="opacity-70 font-mono truncate">— {detail}</span>}
     </div>
   );
 }
