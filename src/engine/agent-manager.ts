@@ -2,15 +2,74 @@
  * Agent Manager — 多 Agent 实例管理
  */
 import { Agent, FileSessionStore } from '@berry-agent/core';
-import type { ProviderConfig, AgentEvent, QueryResult, ToolDefinition } from '@berry-agent/core';
+import {
+  TOOL_BROWSER,
+  TOOL_EDIT_FILE,
+  TOOL_FIND_FILES,
+  TOOL_GREP,
+  TOOL_LIST_FILES,
+  TOOL_READ_FILE,
+  TOOL_SHELL,
+  TOOL_WEB_FETCH,
+  TOOL_WEB_SEARCH,
+  TOOL_WRITE_FILE,
+} from '@berry-agent/core';
+import type { ProviderConfig, AgentEvent, QueryResult, ToolDefinition, ToolRegistration } from '@berry-agent/core';
 import { compositeGuard, directoryScope, denyList } from '@berry-agent/safe';
 import { createObserver, type Observer, type ModelPricing } from '@berry-agent/observe';
-import { createAllTools } from '@berry-agent/tools-common';
+import { createAllTools, createBrowserTool, createWebFetchTool } from '@berry-agent/tools-common';
 import { SYSTEM_PROMPT } from '../agent/prompt.js';
 import { ConfigManager, type AgentEntry } from './config-manager.js';
 import { SessionManager, type ChatMessage } from './session-manager.js';
 import { join } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
+
+const TOOL_GROUPS: Record<string, readonly string[]> = {
+  file: [TOOL_READ_FILE, TOOL_WRITE_FILE, TOOL_LIST_FILES, TOOL_EDIT_FILE],
+  shell: [TOOL_SHELL],
+  search: [TOOL_GREP, TOOL_FIND_FILES],
+  web_fetch: [TOOL_WEB_FETCH],
+  web_search: [TOOL_WEB_SEARCH],
+  browser: [TOOL_BROWSER],
+};
+
+function createUnconfiguredWebSearchTool(): ToolRegistration {
+  return {
+    definition: {
+      name: TOOL_WEB_SEARCH,
+      description: 'Search the web. Returns a configuration error when no search provider is set up.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query' },
+          count: { type: 'number', description: 'Number of results to return (default 5)' },
+        },
+        required: ['query'],
+      },
+    },
+    execute: async () => ({
+      content: 'Error: web_search is not configured. No web search provider is configured for this agent.',
+      isError: true,
+    }),
+  };
+}
+
+function buildTools(workspace: string, entry: AgentEntry): ToolRegistration[] {
+  const tools = [
+    ...createAllTools(workspace),
+    createWebFetchTool(),
+    createUnconfiguredWebSearchTool(),
+    createBrowserTool(),
+  ];
+
+  if (entry.tools === undefined) return tools;
+
+  const allowedToolNames = new Set(
+    entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
+  );
+
+  return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
+}
 
 interface AgentInstance {
   id: string;
@@ -75,9 +134,7 @@ export class AgentManager {
       : SYSTEM_PROMPT;
 
     // Build tools based on config
-    // TODO: respect entry.tools config (e.g., ["file", "shell", "search", "browser"])
-    // Currently always uses createAllTools() regardless of config
-    const tools = createAllTools(workspace);
+    const tools = buildTools(workspace, entry);
 
     const agent = new Agent({
       provider: providerConfig,

@@ -20,7 +20,7 @@ export interface AgentEntry {
   systemPrompt?: string;
   model: string;
   workspace?: string;
-  tools?: string[];        // tool group names: "file", "shell", "search"
+  tools?: string[];        // tool groups or tool names: "file", "shell", "search", "web_fetch", "web_search", "browser"
   skillDirs?: string[];
 }
 
