@@ -175,10 +175,24 @@ export function startServer(port: number) {
 
   /** Create/update agent */
   app.put('/api/agents/:id', (req, res) => {
-    const { name, systemPrompt, model, workspace, tools, skillDirs } = req.body;
+    const { name, systemPrompt, model, workspace, tools, disabledTools, skillDirs, disabledSkills } = req.body;
     if (!name || !model) return res.status(400).json({ error: 'name and model required' });
-    manager.config.setAgent(req.params.id, { name, systemPrompt, model, workspace, tools, skillDirs });
+    manager.config.setAgent(req.params.id, {
+      name, systemPrompt, model, workspace, tools, disabledTools, skillDirs, disabledSkills,
+    });
+    // Hot reload: drop cached Agent instance so next query re-reads config
+    manager.reloadAgent(req.params.id);
     res.json({ ok: true });
+  });
+
+  /** Patch agent (partial update — useful for toggle tool/skill) */
+  app.patch('/api/agents/:id', (req, res) => {
+    const current = manager.config.getAgent(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Agent not found' });
+    const merged = { ...current, ...req.body };
+    manager.config.setAgent(req.params.id, merged);
+    manager.reloadAgent(req.params.id);
+    res.json({ ok: true, entry: merged });
   });
 
   /** Delete agent */

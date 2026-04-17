@@ -20,8 +20,10 @@ export interface AgentEntry {
   systemPrompt?: string;
   model: string;
   workspace?: string;
-  tools?: string[];        // tool groups or tool names: "file", "shell", "search", "web_fetch", "web_search", "browser"
+  tools?: string[];           // tool groups or tool names (hard whitelist; if omitted, all tools mounted)
+  disabledTools?: string[];   // individual tool names to subtract from the mounted set (soft toggle)
   skillDirs?: string[];
+  disabledSkills?: string[];  // skill names to hide from load_skill registry
 }
 
 export interface AppConfig {

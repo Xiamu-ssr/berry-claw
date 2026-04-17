@@ -81,13 +81,17 @@ function buildTools(
     createBrowserTool(),
   ];
 
-  if (entry.tools === undefined) return tools;
+  const afterWhitelist = (() => {
+    if (entry.tools === undefined) return tools;
+    const allowedToolNames = new Set(
+      entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
+    );
+    return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
+  })();
 
-  const allowedToolNames = new Set(
-    entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
-  );
-
-  return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
+  const disabled = new Set(entry.disabledTools ?? []);
+  if (disabled.size === 0) return afterWhitelist;
+  return afterWhitelist.filter((tool) => !disabled.has(tool.definition.name));
 }
 
 interface AgentInstance {
@@ -179,6 +183,11 @@ export class AgentManager {
 
     this.agents.set(id, { id, agent, entry });
     return agent;
+  }
+
+  /** Drop cached Agent instance so next query re-reads config. */
+  reloadAgent(agentId: string): void {
+    this.agents.delete(agentId);
   }
 
   /** Switch active agent */

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Play, Edit, Save, X, FolderOpen } from 'lucide-react';
+import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2 } from 'lucide-react';
+import { showToast } from './Toast';
 
 interface AgentEntry {
   id: string;
@@ -9,7 +10,33 @@ interface AgentEntry {
     systemPrompt?: string;
     workspace?: string;
     tools?: string[];
+    disabledTools?: string[];
+    skillDirs?: string[];
+    disabledSkills?: string[];
   };
+}
+
+interface ToolDef {
+  name: string;
+  description: string;
+}
+
+interface SkillMeta {
+  name: string;
+  description: string;
+  dir: string;
+}
+
+interface InspectRuntime {
+  tools: ToolDef[];
+  skills: SkillMeta[];
+  systemPrompt: string[];
+  status?: string;
+  statusDetail?: string;
+  cwd?: string;
+  workspace?: string;
+  memory?: { available: boolean };
+  compaction?: { threshold: number; contextWindow: number };
 }
 
 interface ModelInfo {
@@ -24,7 +51,69 @@ export default function AgentsPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [inspectData, setInspectData] = useState<Record<string, InspectRuntime | null>>({});
+  const [inspectLoading, setInspectLoading] = useState<string | null>(null);
   const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '' });
+
+  const loadInspect = useCallback(async (id: string) => {
+    setInspectLoading(id);
+    try {
+      const res = await fetch(`/api/agents/${id}/inspect`);
+      const data = await res.json();
+      setInspectData(prev => ({ ...prev, [id]: data.runtime }));
+    } finally {
+      setInspectLoading(null);
+    }
+  }, []);
+
+  const toggleExpand = useCallback((id: string) => {
+    if (expanded === id) {
+      setExpanded(null);
+    } else {
+      setExpanded(id);
+      if (!inspectData[id]) void loadInspect(id);
+    }
+  }, [expanded, inspectData, loadInspect]);
+
+  const toggleTool = useCallback(async (agent: AgentEntry, toolName: string) => {
+    const disabled = new Set(agent.entry.disabledTools ?? []);
+    if (disabled.has(toolName)) disabled.delete(toolName);
+    else disabled.add(toolName);
+    const res = await fetch(`/api/agents/${agent.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disabledTools: [...disabled] }),
+    });
+    if (!res.ok) {
+      showToast('Failed to toggle tool', 'error');
+      return;
+    }
+    showToast(`${disabled.has(toolName) ? 'Disabled' : 'Enabled'} ${toolName}`);
+    await fetchAgentsAndRefresh(agent.id);
+  }, []);
+
+  const toggleSkill = useCallback(async (agent: AgentEntry, skillName: string) => {
+    const disabled = new Set(agent.entry.disabledSkills ?? []);
+    if (disabled.has(skillName)) disabled.delete(skillName);
+    else disabled.add(skillName);
+    const res = await fetch(`/api/agents/${agent.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disabledSkills: [...disabled] }),
+    });
+    if (!res.ok) {
+      showToast('Failed to toggle skill', 'error');
+      return;
+    }
+    showToast(`${disabled.has(skillName) ? 'Disabled' : 'Enabled'} ${skillName}`);
+    await fetchAgentsAndRefresh(agent.id);
+  }, []);
+
+  const fetchAgentsAndRefresh = async (id?: string) => {
+    await fetchAgents();
+    if (id) await loadInspect(id);
+  };
 
   const fetchAgents = useCallback(async () => {
     const res = await fetch('/api/agents');
@@ -191,6 +280,9 @@ export default function AgentsPage() {
                         <Play size={16} />
                       </button>
                     )}
+                    <button onClick={() => toggleExpand(agent.id)} title={expanded === agent.id ? 'Collapse' : 'Inspect'} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 transition-colors">
+                      {expanded === agent.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
                     <button onClick={() => startEdit(agent)} title="Edit" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 transition-colors">
                       <Edit size={16} />
                     </button>
@@ -200,10 +292,176 @@ export default function AgentsPage() {
                   </div>
                 </div>
               )}
+
+              {/* Inspect panel */}
+              {expanded === agent.id && editing !== agent.id && (
+                <InspectPanel
+                  agent={agent}
+                  runtime={inspectData[agent.id] ?? null}
+                  loading={inspectLoading === agent.id}
+                  onToggleTool={(name) => toggleTool(agent, name)}
+                  onToggleSkill={(name) => toggleSkill(agent, name)}
+                />
+              )}
             </div>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// InspectPanel — tools / skills / system prompt for a single agent
+// ============================================================
+function InspectPanel({
+  agent,
+  runtime,
+  loading,
+  onToggleTool,
+  onToggleSkill,
+}: {
+  agent: AgentEntry;
+  runtime: InspectRuntime | null;
+  loading: boolean;
+  onToggleTool: (name: string) => void;
+  onToggleSkill: (name: string) => void;
+}) {
+  const [promptOpen, setPromptOpen] = useState(false);
+
+  if (loading) {
+    return (
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+        <Loader2 size={14} className="animate-spin" /> Loading agent runtime...
+      </div>
+    );
+  }
+
+  if (!runtime) {
+    return (
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 text-sm text-gray-400">
+        No runtime data (agent may not be initialized yet).
+      </div>
+    );
+  }
+
+  const disabledTools = new Set(agent.entry.disabledTools ?? []);
+  const disabledSkills = new Set(agent.entry.disabledSkills ?? []);
+  const enabledToolCount = runtime.tools.filter(t => !disabledTools.has(t.name)).length;
+  const enabledSkillCount = runtime.skills.filter(s => !disabledSkills.has(s.name)).length;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-5">
+      {/* Runtime meta */}
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        {runtime.workspace && (
+          <div>
+            <div className="text-gray-400 mb-0.5">Workspace</div>
+            <div className="font-mono text-gray-600 dark:text-gray-300 truncate">{runtime.workspace}</div>
+          </div>
+        )}
+        {runtime.compaction && (
+          <div>
+            <div className="text-gray-400 mb-0.5">Context window</div>
+            <div className="font-mono text-gray-600 dark:text-gray-300">
+              threshold {runtime.compaction.threshold.toLocaleString()} / {runtime.compaction.contextWindow.toLocaleString()}
+            </div>
+          </div>
+        )}
+        {runtime.memory && (
+          <div>
+            <div className="text-gray-400 mb-0.5">Memory</div>
+            <div className="font-mono text-gray-600 dark:text-gray-300">
+              {runtime.memory.available ? '✓ MEMORY.md mounted' : '✗ not mounted'}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tools */}
+      <section>
+        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
+          <Wrench size={14} /> Tools <span className="text-xs text-gray-400 font-normal">({enabledToolCount}/{runtime.tools.length} enabled)</span>
+        </h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {runtime.tools.map(tool => {
+            const disabled = disabledTools.has(tool.name);
+            return (
+              <button
+                key={tool.name}
+                onClick={() => onToggleTool(tool.name)}
+                className={`text-left rounded-lg p-2.5 border transition-colors ${
+                  disabled
+                    ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'
+                    : 'border-green-200 dark:border-green-800 bg-green-50/40 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${disabled ? 'bg-gray-400' : 'bg-green-500'}`} />
+                  <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{tool.name}</span>
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{tool.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Skills */}
+      {runtime.skills.length > 0 && (
+        <section>
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
+            <BookOpen size={14} /> Skills <span className="text-xs text-gray-400 font-normal">({enabledSkillCount}/{runtime.skills.length} enabled)</span>
+          </h4>
+          <div className="space-y-2">
+            {runtime.skills.map(skill => {
+              const disabled = disabledSkills.has(skill.name);
+              return (
+                <button
+                  key={skill.name}
+                  onClick={() => onToggleSkill(skill.name)}
+                  className={`w-full text-left rounded-lg p-3 border transition-colors ${
+                    disabled
+                      ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'
+                      : 'border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${disabled ? 'bg-gray-400' : 'bg-blue-500'}`} />
+                    <span className="font-medium text-sm text-gray-700 dark:text-gray-300">{skill.name}</span>
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{skill.description}</div>
+                  <div className="text-xs text-gray-400 font-mono mt-1 truncate">{skill.dir}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* System prompt (collapsed by default) */}
+      <section>
+        <button
+          onClick={() => setPromptOpen(v => !v)}
+          className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+        >
+          {promptOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <FileText size={14} /> System Prompt
+          <span className="text-xs text-gray-400 font-normal">({runtime.systemPrompt.length} blocks)</span>
+        </button>
+        {promptOpen && (
+          <div className="space-y-2">
+            {runtime.systemPrompt.map((block, i) => (
+              <pre
+                key={i}
+                className="text-xs whitespace-pre-wrap bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 max-h-64 overflow-y-auto"
+              >
+                {block}
+              </pre>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
