@@ -5,11 +5,17 @@ import { tmpdir } from 'node:os';
 
 let testHome: string;
 let previousHome: string | undefined;
+const scrubbedEnvKeys = ['TAVILY_API_KEY', 'BRAVE_API_KEY', 'SERPAPI_API_KEY'];
+const scrubbedEnvSnapshot: Record<string, string | undefined> = {};
 
 beforeEach(async () => {
   testHome = await mkdtemp(join(tmpdir(), 'berry-claw-agent-manager-'));
   previousHome = process.env.HOME;
   process.env.HOME = testHome;
+  for (const k of scrubbedEnvKeys) {
+    scrubbedEnvSnapshot[k] = process.env[k];
+    delete process.env[k];
+  }
   vi.resetModules();
 });
 
@@ -17,6 +23,9 @@ afterEach(async () => {
   vi.resetModules();
   if (previousHome === undefined) delete process.env.HOME;
   else process.env.HOME = previousHome;
+  for (const k of scrubbedEnvKeys) {
+    if (scrubbedEnvSnapshot[k] !== undefined) process.env[k] = scrubbedEnvSnapshot[k];
+  }
   await rm(testHome, { recursive: true, force: true });
 });
 

@@ -1,7 +1,12 @@
 /**
  * Agent Manager — 多 Agent 实例管理
  */
-import { Agent, FileSessionStore } from '@berry-agent/core';
+import {
+  Agent,
+  DefaultCredentialStore,
+  FileSessionStore,
+  defaultCredentialFilePath,
+} from '@berry-agent/core';
 import {
   TOOL_BROWSER,
   TOOL_EDIT_FILE,
@@ -14,10 +19,22 @@ import {
   TOOL_WEB_SEARCH,
   TOOL_WRITE_FILE,
 } from '@berry-agent/core';
-import type { ProviderConfig, AgentEvent, QueryResult, ToolDefinition, ToolRegistration } from '@berry-agent/core';
+import type {
+  CredentialStore,
+  AgentEvent,
+  QueryResult,
+  ToolRegistration,
+} from '@berry-agent/core';
 import { compositeGuard, directoryScope, denyList } from '@berry-agent/safe';
 import { createObserver, type Observer, type ModelPricing } from '@berry-agent/observe';
-import { createAllTools, createBrowserTool, createWebFetchTool } from '@berry-agent/tools-common';
+import {
+  createAllTools,
+  createBrowserTool,
+  createWebFetchTool,
+  createWebSearchTool,
+  WEB_SEARCH_CREDENTIAL_KEYS,
+  type WebSearchProviderName,
+} from '@berry-agent/tools-common';
 import { SYSTEM_PROMPT } from '../agent/prompt.js';
 import { ConfigManager, type AgentEntry } from './config-manager.js';
 import { SessionManager, type ChatMessage } from './session-manager.js';
@@ -33,32 +50,34 @@ const TOOL_GROUPS: Record<string, readonly string[]> = {
   browser: [TOOL_BROWSER],
 };
 
-function createUnconfiguredWebSearchTool(): ToolRegistration {
-  return {
-    definition: {
-      name: TOOL_WEB_SEARCH,
-      description: 'Search the web. Returns a configuration error when no search provider is set up.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Search query' },
-          count: { type: 'number', description: 'Number of results to return (default 5)' },
-        },
-        required: ['query'],
-      },
-    },
-    execute: async () => ({
-      content: 'Error: web_search is not configured. No web search provider is configured for this agent.',
-      isError: true,
-    }),
-  };
+/**
+ * Pick a web_search provider based on which credential key is present.
+ * Order of preference: Tavily → Brave → SerpAPI.
+ */
+function pickWebSearchProvider(credentials: CredentialStore): WebSearchProviderName | null {
+  const order: WebSearchProviderName[] = ['tavily', 'brave', 'serpapi'];
+  for (const provider of order) {
+    const key = WEB_SEARCH_CREDENTIAL_KEYS[provider];
+    if (credentials.get(key)) return provider;
+  }
+  return null;
 }
 
-function buildTools(workspace: string, entry: AgentEntry): ToolRegistration[] {
+function buildWebSearchTool(credentials: CredentialStore): ToolRegistration {
+  const provider = pickWebSearchProvider(credentials) ?? 'tavily';
+  // When no provider is configured the SDK returns a stub tool automatically.
+  return createWebSearchTool({ provider, credentials });
+}
+
+function buildTools(
+  workspace: string,
+  entry: AgentEntry,
+  credentials: CredentialStore,
+): ToolRegistration[] {
   const tools = [
     ...createAllTools(workspace),
     createWebFetchTool(),
-    createUnconfiguredWebSearchTool(),
+    buildWebSearchTool(credentials),
     createBrowserTool(),
   ];
 
@@ -81,12 +100,16 @@ export class AgentManager {
   readonly config: ConfigManager;
   readonly sessions: SessionManager;
   readonly observer: Observer;
+  readonly credentials: CredentialStore;
   private agents = new Map<string, AgentInstance>();
   private activeAgentId: string;
 
   constructor() {
     this.config = new ConfigManager();
     this.sessions = new SessionManager();
+    this.credentials = new DefaultCredentialStore({
+      filePath: defaultCredentialFilePath(),
+    });
     // Model name aliases: zenmux proxies use "provider/model" naming, map to standard pricing
     const sonnet4: ModelPricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
     const haiku4: ModelPricing = { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 };
@@ -134,8 +157,10 @@ export class AgentManager {
       : SYSTEM_PROMPT;
 
     // Build tools based on config
-    const tools = buildTools(workspace, entry);
+    const tools = buildTools(workspace, entry, this.credentials);
 
+    // Note: setting `workspace` triggers FileAgentMemory auto-init at
+    // {workspace}/MEMORY.md inside Agent constructor — no manual wiring needed.
     const agent = new Agent({
       provider: providerConfig,
       systemPrompt,
