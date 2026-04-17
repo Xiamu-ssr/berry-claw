@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Check, Server, Bot, Moon, Sun, Pencil, X } from 'lucide-react';
+import { Plus, Trash2, Check, Server, Bot, Moon, Sun, Pencil, X, Key, ExternalLink } from 'lucide-react';
 import { showToast } from './Toast';
 
 // ===== Types =====
@@ -24,6 +24,15 @@ interface ConfigStatus {
   configured: boolean;
   defaultModel: string;
   models: Array<{ model: string; providerName: string; type: string }>;
+}
+
+interface CredentialItem {
+  key: string;
+  category: string;
+  provider: string;
+  url: string;
+  configured: boolean;
+  source: 'env' | 'file' | null;
 }
 
 // ===== Helpers =====
@@ -284,6 +293,9 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* ===== API Keys Section ===== */}
+      <APIKeysSection />
+
       {/* ===== Agents Reference ===== */}
       <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2 mb-2">
@@ -320,5 +332,179 @@ export default function SettingsPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// ============================================================
+// APIKeysSection — per-tool API key management (global, all agents share)
+// ============================================================
+function APIKeysSection() {
+  const [items, setItems] = useState<CredentialItem[]>([]);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draftValue, setDraftValue] = useState<string>('');
+
+  const refresh = async () => {
+    const res = await fetch('/api/credentials');
+    const data = await res.json();
+    setItems(data.credentials ?? []);
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const startEdit = (key: string) => {
+    setEditingKey(key);
+    setDraftValue('');
+  };
+
+  const cancelEdit = () => {
+    setEditingKey(null);
+    setDraftValue('');
+  };
+
+  const saveKey = async (key: string) => {
+    if (!draftValue.trim()) {
+      showToast('API key cannot be empty', 'error');
+      return;
+    }
+    const res = await fetch(`/api/credentials/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: draftValue.trim() }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.error ?? 'Save failed', 'error');
+      return;
+    }
+    showToast(`Saved ${key}`);
+    setEditingKey(null);
+    setDraftValue('');
+    refresh();
+  };
+
+  const deleteKey = async (key: string) => {
+    const res = await fetch(`/api/credentials/${encodeURIComponent(key)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const err = await res.json();
+      showToast(err.error ?? 'Delete failed', 'error');
+      return;
+    }
+    showToast(`Removed ${key}`);
+    refresh();
+  };
+
+  // Group by category for display
+  const byCategory = items.reduce<Record<string, CredentialItem[]>>((acc, item) => {
+    (acc[item.category] ??= []).push(item);
+    return acc;
+  }, {});
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    web_search: 'Web Search',
+  };
+
+  return (
+    <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
+      <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-1 flex items-center gap-2">
+        <Key size={20} /> API Keys
+      </h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+        Stored at <code className="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">~/.berry-claw/credentials.json</code> (600 perms). Environment variables take precedence. Shared across all agents.
+      </p>
+
+      {Object.entries(byCategory).map(([cat, list]) => (
+        <div key={cat} className="mb-5 last:mb-0">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+            {CATEGORY_LABELS[cat] ?? cat}
+          </h3>
+          <div className="space-y-2">
+            {list.map((item) => (
+              <div key={item.key} className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-800 dark:text-gray-200">{item.provider}</span>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gray-400 hover:text-berry-500 transition-colors"
+                        title="Get API key"
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                      {item.configured ? (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          item.source === 'env'
+                            ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+                            : 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                        }`}>
+                          {item.source === 'env' ? 'env var' : 'configured'}
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 font-medium">
+                          not set
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{item.key}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {item.source !== 'env' && (
+                      <>
+                        <button
+                          onClick={() => startEdit(item.key)}
+                          className="text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                          title={item.configured ? 'Replace key' : 'Set key'}
+                        >
+                          <Pencil size={15} />
+                        </button>
+                        {item.configured && (
+                          <button
+                            onClick={() => deleteKey(item.key)}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                            title="Remove key"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+                {editingKey === item.key && (
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      type="password"
+                      autoFocus
+                      className="settings-input flex-1"
+                      placeholder={`Paste ${item.provider} API key`}
+                      value={draftValue}
+                      onChange={e => setDraftValue(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') saveKey(item.key);
+                        if (e.key === 'Escape') cancelEdit();
+                      }}
+                    />
+                    <button
+                      onClick={() => saveKey(item.key)}
+                      className="px-3 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg text-sm font-medium"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }

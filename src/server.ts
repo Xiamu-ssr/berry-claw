@@ -88,6 +88,61 @@ export function startServer(port: number) {
 
   // Legacy workspace endpoint removed — each agent has its own workspace
 
+  // ============================
+  // Credentials API
+  // ============================
+  // Known credential keys. Keep in sync with tool-common credential registries.
+  const KNOWN_CREDENTIAL_KEYS = [
+    // Web search providers
+    { key: 'TAVILY_API_KEY', category: 'web_search', provider: 'Tavily', url: 'https://tavily.com' },
+    { key: 'BRAVE_API_KEY', category: 'web_search', provider: 'Brave Search', url: 'https://brave.com/search/api' },
+    { key: 'SERPAPI_API_KEY', category: 'web_search', provider: 'SerpAPI', url: 'https://serpapi.com' },
+  ] as const;
+
+  /** List known credential keys + whether each is configured */
+  app.get('/api/credentials', (_req, res) => {
+    const store = manager.credentials;
+    const items = KNOWN_CREDENTIAL_KEYS.map(entry => ({
+      ...entry,
+      configured: store.has?.(entry.key) ?? false,
+      source: store.source?.(entry.key) ?? null,
+    }));
+    res.json({ credentials: items });
+  });
+
+  /** Set or update a credential (writes to backing file, 600 perms) */
+  app.put('/api/credentials/:key', async (req, res) => {
+    const { key } = req.params;
+    const { value } = req.body ?? {};
+    if (!KNOWN_CREDENTIAL_KEYS.some(e => e.key === key)) {
+      return res.status(400).json({ error: `Unknown credential key: ${key}` });
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+      return res.status(400).json({ error: 'value must be a non-empty string' });
+    }
+    const store = manager.credentials as { set?: (k: string, v: string) => Promise<void> };
+    if (!store.set) return res.status(500).json({ error: 'Credential store not writable' });
+    try {
+      await store.set(key, value.trim());
+      res.json({ ok: true, key, source: manager.credentials.source?.(key) ?? null });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  /** Delete a credential (file-backed only; env vars are not touched) */
+  app.delete('/api/credentials/:key', async (req, res) => {
+    const { key } = req.params;
+    const store = manager.credentials as { delete?: (k: string) => Promise<void> };
+    if (!store.delete) return res.status(500).json({ error: 'Credential store not writable' });
+    try {
+      await store.delete(key);
+      res.json({ ok: true, key });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   /** List all available models */
   app.get('/api/models', (_req, res) => {
     res.json({
