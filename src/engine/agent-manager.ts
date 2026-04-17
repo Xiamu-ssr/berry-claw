@@ -69,6 +69,13 @@ function buildWebSearchTool(credentials: CredentialStore): ToolRegistration {
   return createWebSearchTool({ provider, credentials });
 }
 
+/**
+ * Build the *full* tool registration list for an agent, honoring only the
+ * static `entry.tools` whitelist (tool groups / explicit names). The
+ * `disabledTools` soft-toggle is NOT applied here — it is applied via the
+ * SDK's instance-level `setAllowedTools()` so tools can be re-enabled at
+ * runtime without destroying the Agent instance.
+ */
 function buildTools(
   workspace: string,
   entry: AgentEntry,
@@ -81,17 +88,11 @@ function buildTools(
     createBrowserTool(),
   ];
 
-  const afterWhitelist = (() => {
-    if (entry.tools === undefined) return tools;
-    const allowedToolNames = new Set(
-      entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
-    );
-    return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
-  })();
-
-  const disabled = new Set(entry.disabledTools ?? []);
-  if (disabled.size === 0) return afterWhitelist;
-  return afterWhitelist.filter((tool) => !disabled.has(tool.definition.name));
+  if (entry.tools === undefined) return tools;
+  const allowedToolNames = new Set(
+    entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
+  );
+  return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
 }
 
 interface AgentInstance {
@@ -181,13 +182,57 @@ export class AgentManager {
       onEvent: this.observer.onEvent,
     });
 
+    // Apply initial disabledTools via SDK allow-list (soft toggle)
+    const initialDisabled = new Set(entry.disabledTools ?? []);
+    if (initialDisabled.size > 0) {
+      const all = agent.getTools().map(t => t.name);
+      agent.setAllowedTools(all.filter(n => !initialDisabled.has(n)));
+    }
+
     this.agents.set(id, { id, agent, entry });
     return agent;
   }
 
-  /** Drop cached Agent instance so next query re-reads config. */
+  /**
+   * Hot-reload an agent's configuration. Instead of dropping the cached
+   * instance (which would destroy in-memory session state), we mutate the
+   * running Agent via SDK hot-reload API so the next turn picks up changes.
+   *
+   * Supports: systemPrompt, model, allowedTools (via disabledTools in entry).
+   */
   reloadAgent(agentId: string): void {
-    this.agents.delete(agentId);
+    const cached = this.agents.get(agentId);
+    const entry = this.config.getAgent(agentId);
+    if (!entry) {
+      this.agents.delete(agentId);
+      return;
+    }
+    if (!cached) return; // not yet initialized; next getAgent() will read fresh
+
+    // 1. System prompt
+    cached.agent.setSystemPrompt(entry.systemPrompt ?? '');
+
+    // 2. Model (if changed and provider keyed by model name)
+    try {
+      if (entry.model && entry.model !== cached.agent.currentProvider.model) {
+        const providerConfig = this.config.toProviderConfig(entry.model);
+        if (providerConfig) cached.agent.switchProvider(providerConfig);
+      }
+    } catch (err) {
+      console.warn(`[reload] model switch failed for ${agentId}:`, err);
+    }
+
+    // 3. Allowed tools = (all registered) − disabledTools
+    const disabled = new Set(entry.disabledTools ?? []);
+    if (disabled.size === 0) {
+      cached.agent.setAllowedTools(null);
+    } else {
+      const all = cached.agent.getTools().map(t => t.name);
+      cached.agent.setAllowedTools(all.filter(n => !disabled.has(n)));
+    }
+
+    // 4. Refresh stored entry snapshot so subsequent reads see latest config
+    cached.entry = entry;
   }
 
   /** Switch active agent */
