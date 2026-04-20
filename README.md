@@ -1,85 +1,132 @@
-# Berry-Claw 🐾
+# berry-claw 🐾
 
-AI agent product built on [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk) — eating our own dog food.
+A local-first AI agent product built on [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk) — multi-provider, multi-agent, with a built-in observability dashboard.
 
-## What It Does
+> eating our own dog food
 
-A web-based AI agent with chat UI, multi-provider support, and full observability dashboard.
+---
 
-## Architecture
-
-```
-Web UI (React + Vite)  ←→  WebSocket + REST  ←→  server.ts
-                                                     ↓
-                                              AgentManager
-                                           ↙       ↓        ↘
-                                  ConfigManager  Agent    Observer
-                                  (providers)   (core)   (observe)
-                                                  ↓
-                                            tools-common
-                                        (10 pre-built tools)
-```
-
-## SDK Integration
-
-| SDK Package | Usage in Berry-Claw |
-|-------------|-------------------|
-| @berry-agent/core | Agent loop, sessions, providers |
-| @berry-agent/tools-common | All tools (zero custom tool code) |
-| @berry-agent/observe | `createObserveRouter()` — one line to add 14 API endpoints |
-| @berry-agent/safe | `compositeGuard(directoryScope, denyList)` |
-
-**Backend**: 793 lines — because the SDK does the heavy lifting.
-
-## Features
-
-- **Multi-provider**: Register Anthropic/OpenAI/etc., route by model name
-- **Multi-agent**: Create/switch/inspect agents with different configs
-- **Chat**: WebSocket streaming, tool call display, session switching with history
-- **Observe Dashboard**: Powered by @berry-agent/observe UI (cost, cache, guard, compaction, inference detail, sessions, agents)
-- **Settings**: Provider/agent management UI
-
-## Run
+## Install
 
 ```bash
-# Backend
+npm install -g berry-claw
+```
+
+Or one-shot via `npx`:
+
+```bash
+npx berry-claw
+```
+
+Requires **Node.js ≥ 20**.
+
+---
+
+## Quick start
+
+```bash
+# 1. First-time setup (creates ~/.berry-claw/, asks about optional deps)
+berry-claw setup
+
+# 2. Launch server + Web UI
+berry-claw
+
+# 3. Open http://localhost:3210 and add a provider + agent in Settings.
+```
+
+That's it. No config file to hand-edit; the Web UI walks you through it.
+
+---
+
+## CLI
+
+| Command | What it does |
+|---|---|
+| `berry-claw` | Start server + Web UI (default) |
+| `berry-claw start` | Same as above (explicit) |
+| `berry-claw setup` | First-time setup wizard |
+| `berry-claw doctor` | Environment self-check |
+| `berry-claw install browser` | Install the browser runtime for the `browser` tool |
+| `berry-claw version` | Print version |
+| `berry-claw help` | Show help |
+
+### Environment
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `3210` | HTTP port |
+| `BERRY_CLAW_HOME` | `~/.berry-claw` | Data directory (agents, sessions, observe DB, config) |
+
+---
+
+## What's inside
+
+- **Multi-provider**: Anthropic / OpenAI-compatible. Route requests by model name.
+- **Multi-agent**: Create/switch/inspect agents with their own tools, skills, and workspace.
+- **Chat UI**: Streaming WebSocket, tool-call view, session history.
+- **Observability**: Cost, cache hit-rate, guard decisions, compaction timeline, turn-level inference detail.
+- **Settings UI**: Provider + agent + credentials management.
+
+---
+
+## Optional capabilities
+
+Some features need extra runtime assets that aren't shipped by default:
+
+| Capability | Install | Why it's optional |
+|---|---|---|
+| Browser tool | `berry-claw install browser` | Downloads Chromium (~150 MB). Only needed if you let agents drive real pages. |
+
+`berry-claw doctor` will tell you what's missing.
+
+---
+
+## SDK integration
+
+berry-claw is a thin product shell over [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk):
+
+| SDK Package | Usage |
+|---|---|
+| `@berry-agent/core` | Agent loop, sessions, providers, retry/timeout, compaction |
+| `@berry-agent/tools-common` | All built-in tools (read/write/edit/shell/search/web/browser) |
+| `@berry-agent/observe` | `createObserveRouter()` — drops in the whole observe REST API |
+| `@berry-agent/safe` | `compositeGuard(directoryScope, denyList)` for tool-guard policy |
+
+---
+
+## Data layout
+
+```
+~/.berry-claw/
+├── config.json          # providers + agents + credentials (mode 0600)
+├── observe.db           # SQLite: cost, cache, guard, turns, inferences
+├── agents/
+│   └── <agent-id>/      # each agent's isolated workspace
+└── sessions/
+    └── <agent-id>/*.json
+```
+
+---
+
+## Develop
+
+From a clone of the repo:
+
+```bash
 npm install
-npm run dev          # http://localhost:3210
-
-# Frontend
-cd web && npm install
-npm run dev          # http://localhost:3211
+npm run dev               # backend (3210) + Vite dev server (3211)
+npm test                  # unit tests
 ```
 
-## Config
-
-`~/.berry-claw/config.json`:
-
-```json
-{
-  "providers": {
-    "anthropic": {
-      "type": "anthropic",
-      "apiKey": "sk-...",
-      "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250414"]
-    }
-  },
-  "agents": {
-    "default": {
-      "model": "claude-sonnet-4-20250514",
-      "workspace": "~/.berry-claw/workspace"
-    }
-  }
-}
-```
-
-## Tests
+Run the built CLI against the local code:
 
 ```bash
-npm test                    # 39 unit tests
-npm run test:integration    # 8 integration tests (needs API keys)
+npm run build
+node dist/cli.js doctor
 ```
+
+---
 
 ## Status
 
-Alpha — functional but rough edges. Primary purpose is SDK validation.
+Alpha. Functional but rough edges. Primary purpose right now is SDK validation.

@@ -1,16 +1,31 @@
 {
   "name": "berry-claw",
   "version": "0.1.0",
-  "private": true,
   "description": "AI agent product built on berry-agent-sdk",
   "type": "module",
+  "bin": {
+    "berry-claw": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "web/dist",
+    "README.md"
+  ],
   "scripts": {
     "dev": "concurrently \"tsx watch src/main.ts\" \"cd web && npm run dev\"",
     "dev:server": "tsx watch src/main.ts",
     "dev:web": "cd web && npm run dev",
-    "build": "cd web && npm run build",
-    "start": "NODE_ENV=production tsx src/main.ts",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc",
+    "build:web": "cd web && npm install --no-audit --no-fund && npm run build",
+    "start": "node dist/cli.js",
+    "prepack": "node scripts/prepack.mjs",
+    "postpack": "node scripts/postpack.mjs",
+    "prepublishOnly": "npm run build",
     "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@berry-agent/core": "file:../berry-agent-sdk/packages/core",

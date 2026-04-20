@@ -26,7 +26,7 @@ describe('Config API', () => {
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(data).toHaveProperty('configured');
-    expect(data).toHaveProperty('workspace');
+    expect(data).toHaveProperty('defaultModel');
     expect(data).toHaveProperty('models');
   });
 
