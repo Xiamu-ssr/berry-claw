@@ -4,7 +4,7 @@ import ChatArea from './components/ChatArea';
 import ObserveDashboard from './components/ObserveDashboard';
 import SettingsPage from './components/SettingsPage';
 import AgentsPage from './components/AgentsPage';
-import ToastContainer from './components/Toast';
+import ToastContainer, { useToast } from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { AgentStatus, ChatMessage, SessionInfo, ToolCallInfo, TodoItem, WsIncoming } from './types';
 
@@ -24,6 +24,11 @@ export default function App() {
   // Ref mirrors for use inside the 'done' closure
   const pendingToolsRef = useRef<ToolCallInfo[]>([]);
   const thinkingTextRef = useRef('');
+
+  // Toast is read via a ref so handleWsMessage stays stable.
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   // Fetch sessions on mount
   useEffect(() => {
@@ -88,6 +93,25 @@ export default function App() {
         setTodos(msg.todos);
         break;
 
+      case 'retry': {
+        // Strong-supervision surface: SDK decided this inference failed fast and
+        // will retry. Show a single upsertable toast so repeated retries stack
+        // into one notification instead of a spammy column.
+        const reasonLabel =
+          msg.reason === 'stream_idle_timeout'
+            ? '模型首次响应超时'
+            : '临时网络错误';
+        const delaySeconds = Math.max(1, Math.round(msg.delayMs / 1000));
+        toastRef.current.show({
+          id: 'provider-retry',
+          variant: 'warn',
+          title: `${reasonLabel}，${delaySeconds}s 后重试 (${msg.attempt}/${msg.maxAttempts})`,
+          message: msg.errorMessage || '准备重试…',
+          durationMs: Math.max(4000, msg.delayMs + 2000),
+        });
+        break;
+      }
+
       case 'done': {
         const text = streamingTextRef.current;
         const thinking = thinkingTextRef.current;
@@ -116,6 +140,12 @@ export default function App() {
       }
 
       case 'error':
+        toastRef.current.show({
+          variant: 'error',
+          title: '推理失败',
+          message: msg.message,
+          durationMs: 8000,
+        });
         setMessages((prev) => [
           ...prev,
           {

@@ -173,6 +173,19 @@ export function startServer(port: number) {
     res.json({ agents, activeAgent: manager.activeAgent });
   });
 
+  /**
+   * Runtime status snapshot for every initialized agent instance. Uninstantiated
+   * agents are reported as 'idle' so the UI can still render a pill.
+   */
+  app.get('/api/agents/statuses', (_req, res) => {
+    const out: Record<string, { status: string; detail?: string }> = {};
+    for (const { id } of manager.config.listAgents()) {
+      const snap = manager.getAgentStatus(id);
+      out[id] = snap ?? { status: 'idle' };
+    }
+    res.json({ statuses: out });
+  });
+
   /** Create/update agent */
   app.put('/api/agents/:id', (req, res) => {
     const { name, systemPrompt, model, workspace, tools, disabledTools, skillDirs, disabledSkills } = req.body;
@@ -225,17 +238,17 @@ export function startServer(port: number) {
   // Session API
   // ============================
 
-  /** List sessions (from session manager, enriched with observe data) */
-  app.get('/api/sessions', (_req, res) => {
-    const sessions = manager.sessions.listSessions();
+  /** List sessions (hydrate from persisted SDK session store on restart) */
+  app.get('/api/sessions', async (_req, res) => {
+    const sessions = await manager.listSessionStates();
     res.json({ sessions });
   });
 
   /** Get session detail + messages */
-  app.get('/api/sessions/:id', (req, res) => {
-    const messages = manager.sessions.getMessages(req.params.id);
+  app.get('/api/sessions/:id', async (req, res) => {
+    const state = await manager.loadSessionState(req.params.id);
     const observeSummary = manager.observer.analyzer.sessionSummary(req.params.id);
-    res.json({ id: req.params.id, messages, observe: observeSummary });
+    res.json({ id: req.params.id, messages: state?.messages ?? [], observe: observeSummary });
   });
 
   /** Delete session */
@@ -285,7 +298,8 @@ export function startServer(port: number) {
             ws.send(JSON.stringify({ type: 'session_cleared' }));
             break;
           case 'resume_session': {
-            const state = manager.sessions.switchSession(msg.sessionId);
+            const hydrated = await manager.loadSessionState(msg.sessionId);
+            const state = hydrated ?? manager.sessions.switchSession(msg.sessionId);
             ws.send(JSON.stringify({
               type: 'session_resumed',
               sessionId: msg.sessionId,
@@ -364,7 +378,7 @@ async function handleChat(ws: WebSocket, manager: AgentManager, prompt: string, 
             ws.send(JSON.stringify({ type: 'tool_result', name: event.name, isError: event.isError }));
             break;
           case 'status_change':
-            ws.send(JSON.stringify({ type: 'status_change', status: event.status, detail: event.detail }));
+            ws.send(JSON.stringify({ type: 'status_change', agentId: manager.activeAgent, status: event.status, detail: event.detail }));
             break;
           case 'todo_updated':
             ws.send(JSON.stringify({
@@ -372,6 +386,17 @@ async function handleChat(ws: WebSocket, manager: AgentManager, prompt: string, 
               sessionId: event.sessionId,
               todos: event.todos,
               timestamp: event.timestamp,
+            }));
+            break;
+          case 'retry':
+            ws.send(JSON.stringify({
+              type: 'retry',
+              scope: event.scope,
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              reason: event.reason,
+              errorMessage: event.errorMessage,
+              delayMs: event.delayMs,
             }));
             break;
         }

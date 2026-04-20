@@ -65,6 +65,8 @@ export interface TodoItem {
   activeForm?: string;
 }
 
+export type RetryReason = 'stream_idle_timeout' | 'transient_error';
+
 export type WsIncoming =
   | { type: 'start' }
   | { type: 'text_delta'; text: string }
@@ -74,6 +76,15 @@ export type WsIncoming =
   | { type: 'api_call'; messages: number; tools: number }
   | { type: 'status_change'; status: AgentStatus; detail?: string }
   | { type: 'todo_updated'; sessionId: string; todos: TodoItem[]; timestamp: number }
+  | {
+      type: 'retry';
+      scope: 'stream' | 'chat';
+      attempt: number;
+      maxAttempts: number;
+      reason: RetryReason;
+      errorMessage: string;
+      delayMs: number;
+    }
   | { type: 'done'; sessionId: string; usage: any; totalUsage: any; toolCalls: number }
   | { type: 'error'; message: string }
   | { type: 'session_cleared' }
