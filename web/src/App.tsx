@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
+import TodoPanel from './components/TodoPanel';
 import ObserveDashboard from './components/ObserveDashboard';
 import SettingsPage from './components/SettingsPage';
 import AgentsPage from './components/AgentsPage';
@@ -262,6 +263,8 @@ export default function App() {
             onInterject={(text) => send({ type: 'interject', text })}
           />
         )}
+
+        {activeTab === 'chat' && <TodoPanel todos={todos} />}
 
         {activeTab === 'chat' && (
           <ChatArea
