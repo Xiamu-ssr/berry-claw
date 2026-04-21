@@ -7,10 +7,21 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'node:http';
 import { resolve, join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { AgentManager } from './engine/agent-manager.js';
+import { AgentManager, getToolGroup } from './engine/agent-manager.js';
 import { createObserveRouter } from '@berry-agent/observe';
 import type { AgentEvent } from '@berry-agent/core';
 import { WEB_SEARCH_CREDENTIAL_META, type CredentialKeyMeta } from '@berry-agent/tools-common';
+
+/**
+ * Mask API keys for display: show a short prefix + a run of bullets + last 3
+ * characters. Anything <= 8 chars is fully bulleted to avoid leaking keys.
+ * Example: sk-proj-abc...xyz → "sk-pro••••••••xyz"
+ */
+function maskKey(key: string): string {
+  if (!key) return '';
+  if (key.length <= 8) return '•'.repeat(key.length);
+  return key.slice(0, 6) + '•'.repeat(8) + key.slice(-3);
+}
 
 export function startServer(port: number) {
   const manager = new AgentManager();
@@ -19,72 +30,131 @@ export function startServer(port: number) {
   app.use(express.json());
 
   // ============================
-  // Config API
+  // Config API — v2 schema (3-layer: providers → models → tiers)
   // ============================
 
-  /** Get full config */
+  /** Get full config (apiKeys masked for safety) */
   app.get('/api/config', (_req, res) => {
     const config = manager.config.get();
-    // Mask API keys in response
-    const safe = {
-      ...config,
-      providers: Object.fromEntries(
-        Object.entries(config.providers).map(([k, v]) => [
-          k,
-          { ...v, apiKey: v.apiKey.slice(0, 8) + '...' },
-        ]),
-      ),
-    };
-    res.json(safe);
-  });
-
-  /** Check if configured */
-  app.get('/api/config/status', (_req, res) => {
+    const maskedProviders = Object.fromEntries(
+      Object.entries(config.providerInstances).map(([k, v]) => [
+        k,
+        { ...v, apiKey: maskKey(v.apiKey) },
+      ]),
+    );
     res.json({
-      configured: manager.config.isConfigured,
-      defaultModel: manager.config.defaultModel,
-      models: manager.config.listModels(),
+      schemaVersion: 2,
+      providerInstances: maskedProviders,
+      models: config.models,
+      tiers: config.tiers,
+      agents: config.agents,
+      defaultAgent: config.defaultAgent,
     });
   });
 
-  /** Add/update a provider */
-  app.put('/api/config/providers/:name', (req, res) => {
-    const { type, baseUrl, apiKey, models } = req.body;
-    if (!type || !models?.length) {
-      return res.status(400).json({ error: 'type and models[] required' });
-    }
-    // apiKey is optional for updates — keep existing if not provided
-    const existing = manager.config.get().providers[req.params.name];
-    const resolvedApiKey: string = apiKey || existing?.apiKey;
-    if (!resolvedApiKey) {
-      return res.status(400).json({ error: 'apiKey required for new providers' });
-    }
-    manager.config.setProvider(req.params.name, { type, baseUrl, apiKey: resolvedApiKey, models });
-    // Re-init agent with new config
-    try {
-      manager.initAgent();
-    } catch {
-      // Config saved but agent init may fail if no default model yet
-    }
-    res.json({ ok: true, models: manager.config.listModels() });
+  /** Configuration status */
+  app.get('/api/config/status', (_req, res) => {
+    res.json({
+      configured: manager.config.isConfigured,
+      firstModel: manager.config.firstConfiguredModelId(),
+      tiers: manager.config.getTiers(),
+    });
   });
 
-  /** Remove a provider */
-  app.delete('/api/config/providers/:name', (req, res) => {
-    manager.config.removeProvider(req.params.name);
+  // --- Layer 1: Provider Instances ---
+
+  app.get('/api/config/provider-instances', (_req, res) => {
+    const items = manager.config.listProviderInstances().map(({ id, entry }) => ({
+      id,
+      entry: { ...entry, apiKey: maskKey(entry.apiKey) },
+    }));
+    res.json({ providerInstances: items });
+  });
+
+  app.put('/api/config/provider-instances/:id', (req, res) => {
+    const { presetId, apiKey, baseUrl, type, knownModels, label } = req.body ?? {};
+    if (!presetId) return res.status(400).json({ error: 'presetId required' });
+    const existing = manager.config.getProviderInstance(req.params.id);
+    const resolvedKey = apiKey || existing?.apiKey;
+    if (!resolvedKey) {
+      return res.status(400).json({ error: 'apiKey required for new provider instances' });
+    }
+    manager.config.setProviderInstance(req.params.id, {
+      id: req.params.id,
+      presetId,
+      apiKey: resolvedKey,
+      baseUrl,
+      type,
+      knownModels,
+      label,
+    });
     res.json({ ok: true });
   });
 
-  /** Set default model */
-  app.put('/api/config/model', (req, res) => {
-    const { model } = req.body;
-    if (!model) return res.status(400).json({ error: 'model required' });
-    const resolved = manager.config.resolveModel(model);
-    if (!resolved) return res.status(404).json({ error: `Model "${model}" not found` });
-    manager.config.update({ defaultModel: model });
-    // Switch live agent
-    try { manager.switchModel(model); } catch { /* agent not init yet */ }
-    res.json({ ok: true, model, provider: resolved.providerName });
+  app.delete('/api/config/provider-instances/:id', (req, res) => {
+    manager.config.removeProviderInstance(req.params.id);
+    res.json({ ok: true });
+  });
+
+  /** Fetch live models for a configured provider instance. */
+  app.get('/api/config/provider-instances/:id/models', async (req, res) => {
+    const entry = manager.config.getProviderInstance(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'Provider instance not found' });
+    const { listModels } = await import('@berry-agent/models');
+    try {
+      const result = await listModels(entry);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  /** Built-in provider presets (static catalog). */
+  app.get('/api/config/presets', async (_req, res) => {
+    const { listBuiltinPresets } = await import('@berry-agent/models');
+    res.json({ presets: listBuiltinPresets() });
+  });
+
+  // --- Layer 2: Models ---
+
+  app.get('/api/config/models', (_req, res) => {
+    res.json({ models: manager.config.listModels() });
+  });
+
+  app.put('/api/config/models/:id', (req, res) => {
+    const { providers, label } = req.body ?? {};
+    if (!Array.isArray(providers) || providers.length === 0) {
+      return res.status(400).json({ error: 'providers[] with at least one entry required' });
+    }
+    manager.config.setModel(req.params.id, {
+      id: req.params.id,
+      label,
+      providers,
+    });
+    // Hot reload so agents pointing at this model pick up the new binding.
+    try { manager.initAgent(); } catch { /* non-fatal */ }
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/config/models/:id', (req, res) => {
+    manager.config.removeModel(req.params.id);
+    res.json({ ok: true });
+  });
+
+  // --- Layer 3: Tiers ---
+
+  app.get('/api/config/tiers', (_req, res) => {
+    res.json({ tiers: manager.config.getTiers() });
+  });
+
+  app.put('/api/config/tiers/:tier', (req, res) => {
+    const tier = req.params.tier;
+    if (tier !== 'strong' && tier !== 'balanced' && tier !== 'fast') {
+      return res.status(400).json({ error: `Unknown tier "${tier}"` });
+    }
+    const { modelId } = req.body ?? {};
+    manager.config.setTier(tier, typeof modelId === 'string' ? modelId : null);
+    res.json({ ok: true });
   });
 
   // Legacy workspace endpoint removed — each agent has its own workspace
@@ -143,15 +213,23 @@ export function startServer(port: number) {
     }
   });
 
-  /** List all available models */
+  /**
+   * Flat model list used by the chat-area model switcher and the AgentsPage
+   * model dropdown — view-only projection of Layer-2 bindings.
+   */
   app.get('/api/models', (_req, res) => {
+    const bindings = manager.config.listModels();
     res.json({
-      models: manager.config.listModels(),
+      models: bindings.map(({ id, entry }) => ({
+        model: id,
+        providerName: entry.providers[0]?.providerId ?? '',
+        type: 'model',
+      })),
       current: manager.currentModel(),
     });
   });
 
-  /** Switch model at runtime */
+  /** Switch model at runtime (accepts tier:X / model:X / raw:... / bare id). */
   app.post('/api/models/switch', (req, res) => {
     const { model } = req.body;
     if (!model) return res.status(400).json({ error: 'model required' });
@@ -228,7 +306,16 @@ export function startServer(port: number) {
   app.get('/api/agents/:id/inspect', (req, res) => {
     try {
       const info = manager.inspectAgent(req.params.id);
-      res.json(info);
+      const runtime = info.runtime
+        ? {
+            ...info.runtime,
+            tools: info.runtime.tools.map((t: { name: string; description: string }) => ({
+              ...t,
+              group: getToolGroup(t.name),
+            })),
+          }
+        : null;
+      res.json({ ...info, runtime });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
@@ -342,9 +429,10 @@ export function startServer(port: number) {
     console.log(`🐾 Berry-Claw server at http://localhost:${port}`);
     console.log(`📁 Agents dir: ${join(manager.config.appDir, 'agents')}`);
     if (manager.config.isConfigured) {
-      console.log(`🤖 Default model: ${manager.config.defaultModel}`);
+      const firstModel = manager.config.firstConfiguredModelId();
+      if (firstModel) console.log(`🤖 First model: ${firstModel}`);
     } else {
-      console.log('⚠️  No providers configured. POST /api/config/providers/:name to add one.');
+      console.log('⚠️  No providers configured. Open Settings → Providers to add one.');
     }
   });
 
@@ -397,6 +485,14 @@ async function handleChat(ws: WebSocket, manager: AgentManager, prompt: string, 
               reason: event.reason,
               errorMessage: event.errorMessage,
               delayMs: event.delayMs,
+            }));
+            break;
+          case 'api_response':
+            ws.send(JSON.stringify({
+              type: 'api_response',
+              model: event.model,
+              usage: event.usage,
+              stopReason: event.stopReason,
             }));
             break;
         }

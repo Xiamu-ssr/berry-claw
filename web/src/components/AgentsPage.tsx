@@ -19,6 +19,7 @@ interface AgentEntry {
 interface ToolDef {
   name: string;
   description: string;
+  group?: string;
 }
 
 interface SkillMeta {
@@ -252,9 +253,15 @@ export default function AgentsPage() {
 
         {/* Agent list */}
         {agents.length === 0 && !creating && (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-lg mb-2">No agents yet</p>
-            <p className="text-sm">Create your first agent to start chatting</p>
+          <div className="text-center py-16 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700">
+            <p className="text-lg font-medium text-gray-700 dark:text-gray-200 mb-1">No agents yet</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Create your first agent to start chatting</p>
+            <button
+              onClick={() => setCreating(true)}
+              className="inline-flex items-center gap-1.5 bg-berry-500 hover:bg-berry-600 text-white text-sm rounded-lg px-4 py-2"
+            >
+              <Plus size={16} /> Create Agent
+            </button>
           </div>
         )}
 
@@ -262,10 +269,10 @@ export default function AgentsPage() {
           {agents.map(agent => (
             <div
               key={agent.id}
-              className={`rounded-xl p-4 border transition-colors ${
+              className={`rounded-xl p-4 border transition-all ${
                 activeAgent === agent.id
-                  ? 'border-berry-400 bg-berry-50 dark:bg-berry-900/20 dark:border-berry-600'
-                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800'
+                  ? 'border-berry-400 bg-berry-50 dark:bg-berry-900/20 dark:border-berry-600 shadow-sm'
+                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600 hover:shadow-sm'
               }`}
             >
               {editing === agent.id ? (
@@ -299,8 +306,8 @@ export default function AgentsPage() {
                       Model: <span className="font-mono text-xs">{agent.entry.model}</span>
                     </div>
                     {agent.entry.workspace && (
-                      <div className="text-xs text-gray-400 flex items-center gap-1">
-                        <FolderOpen size={12} /> {agent.entry.workspace}
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 font-mono">
+                        <FolderOpen size={12} className="shrink-0" /> {agent.entry.workspace}
                       </div>
                     )}
                   </div>
@@ -441,27 +448,41 @@ function InspectPanel({
         <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
           <Wrench size={14} /> Tools <span className="text-xs text-gray-400 font-normal">({enabledToolCount}/{runtime.tools.length} enabled)</span>
         </h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {runtime.tools.map(tool => {
-            const disabled = disabledTools.has(tool.name);
-            return (
-              <button
-                key={tool.name}
-                onClick={() => onToggleTool(tool.name)}
-                className={`text-left rounded-lg p-2.5 border transition-colors ${
-                  disabled
-                    ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'
-                    : 'border-green-200 dark:border-green-800 bg-green-50/40 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${disabled ? 'bg-gray-400' : 'bg-green-500'}`} />
-                  <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{tool.name}</span>
-                </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{tool.description}</div>
-              </button>
-            );
-          })}
+        <div className="space-y-3">
+          {Array.from(
+            runtime.tools.reduce((map, tool) => {
+              const group = tool.group || 'Other';
+              if (!map.has(group)) map.set(group, []);
+              map.get(group)!.push(tool);
+              return map;
+            }, new Map<string, ToolDef[]>()).entries()
+          ).map(([group, tools]) => (
+            <div key={group}>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{group}</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {tools.map(tool => {
+                  const disabled = disabledTools.has(tool.name);
+                  return (
+                    <button
+                      key={tool.name}
+                      onClick={() => onToggleTool(tool.name)}
+                      className={`text-left rounded-lg p-2.5 border transition-colors ${
+                        disabled
+                          ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 opacity-60'
+                          : 'border-green-200 dark:border-green-800 bg-green-50/40 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${disabled ? 'bg-gray-400' : 'bg-green-500'}`} />
+                        <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{tool.name}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{tool.description}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 

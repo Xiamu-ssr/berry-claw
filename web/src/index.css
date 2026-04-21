@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  /**
+   * Shared form-control style used across Settings / Agents pages.
+   * Using a custom class here (instead of repeating 8 tailwind tokens on
+   * every input) keeps the forms visually consistent.
+   */
+  .settings-input {
+    @apply px-3 py-2 text-sm rounded-lg
+           bg-white dark:bg-gray-900
+           border border-gray-300 dark:border-gray-600
+           text-gray-800 dark:text-gray-100
+           placeholder:text-gray-400 dark:placeholder:text-gray-500
+           focus:outline-none focus:ring-2 focus:ring-berry-500 focus:border-transparent
+           disabled:opacity-60 disabled:cursor-not-allowed
+           transition-colors;
+  }
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;

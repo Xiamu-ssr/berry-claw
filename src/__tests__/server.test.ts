@@ -20,67 +20,85 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-describe('Config API', () => {
-  it('GET /api/config/status returns status', async () => {
+describe('Config API (v2 schema: provider instances + models + tiers)', () => {
+  it('GET /api/config/status returns status shape', async () => {
     const res = await fetch(`${BASE}/api/config/status`);
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(data).toHaveProperty('configured');
-    expect(data).toHaveProperty('defaultModel');
-    expect(data).toHaveProperty('models');
+    expect(data).toHaveProperty('firstModel');
+    expect(data).toHaveProperty('tiers');
   });
 
-  it('PUT /api/config/providers/:name adds a provider', async () => {
-    const res = await fetch(`${BASE}/api/config/providers/test-provider`, {
+  it('GET /api/config/presets returns built-in provider catalog', async () => {
+    const res = await fetch(`${BASE}/api/config/presets`);
+    const data = await res.json();
+    const ids = data.presets.map((p: any) => p.id);
+    expect(ids).toContain('anthropic');
+    expect(ids).toContain('openai');
+    expect(ids).toContain('glm');
+  });
+
+  it('PUT /api/config/provider-instances/:id creates a provider instance', async () => {
+    const res = await fetch(`${BASE}/api/config/provider-instances/test-provider`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        presetId: '__raw__',
         type: 'openai',
         baseUrl: 'https://test.com/v1',
         apiKey: 'sk-test-key',
-        models: ['gpt-4o', 'gpt-4o-mini'],
+        knownModels: ['gpt-4o', 'gpt-4o-mini'],
       }),
     });
     expect(res.ok).toBe(true);
     const data = await res.json();
     expect(data.ok).toBe(true);
-    expect(data.models.length).toBeGreaterThanOrEqual(2);
   });
 
   it('GET /api/config returns config with masked keys', async () => {
     const res = await fetch(`${BASE}/api/config`);
     const data = await res.json();
-    expect(data.providers['test-provider']).toBeDefined();
-    expect(data.providers['test-provider'].apiKey).toContain('...');
-    expect(data.providers['test-provider'].apiKey).not.toBe('sk-test-key');
+    expect(data.schemaVersion).toBe(2);
+    const inst = data.providerInstances['test-provider'];
+    expect(inst).toBeDefined();
+    expect(inst.apiKey).not.toBe('sk-test-key');
+    expect(inst.apiKey).toMatch(/^sk-tes.*••.*key$/);
   });
 
-  it('GET /api/models lists available models', async () => {
+  it('PUT /api/config/models/:id binds a model to providers', async () => {
+    const res = await fetch(`${BASE}/api/config/models/gpt-4o`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providers: [{ providerId: 'test-provider' }],
+      }),
+    });
+    expect(res.ok).toBe(true);
+  });
+
+  it('GET /api/models exposes Layer-2 bindings to the chat switcher', async () => {
     const res = await fetch(`${BASE}/api/models`);
     const data = await res.json();
-    expect(data.models.length).toBeGreaterThanOrEqual(2);
     expect(data.models.some((m: any) => m.model === 'gpt-4o')).toBe(true);
   });
 
-  it('PUT /api/config/model sets default model', async () => {
-    const res = await fetch(`${BASE}/api/config/model`, {
+  it('PUT /api/config/tiers/:tier assigns a model to a tier', async () => {
+    const res = await fetch(`${BASE}/api/config/tiers/balanced`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gpt-4o' }),
+      body: JSON.stringify({ modelId: 'gpt-4o' }),
     });
-    const data = await res.json();
-    expect(data.ok).toBe(true);
-
-    // Verify
+    expect(res.ok).toBe(true);
     const status = await fetch(`${BASE}/api/config/status`).then(r => r.json());
-    expect(status.defaultModel).toBe('gpt-4o');
+    expect(status.tiers.balanced).toBe('gpt-4o');
   });
 
-  it('PUT /api/config/providers rejects invalid input', async () => {
-    const res = await fetch(`${BASE}/api/config/providers/bad`, {
+  it('PUT /api/config/provider-instances rejects missing presetId', async () => {
+    const res = await fetch(`${BASE}/api/config/provider-instances/bad`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'openai' }), // missing apiKey and models
+      body: JSON.stringify({ apiKey: 'sk-x' }),
     });
     expect(res.status).toBe(400);
   });
