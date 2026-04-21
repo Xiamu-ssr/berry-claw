@@ -114,21 +114,16 @@ export default function App() {
       }
 
       case 'done': {
-        const text = streamingTextRef.current;
-        const thinking = thinkingTextRef.current;
-        const toolCalls = [...pendingToolsRef.current];
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: genId(),
-            role: 'assistant',
-            content: text,
-            timestamp: Date.now(),
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            thinking: thinking || undefined,
-            usage: msg.usage,
-          },
-        ]);
+        const assistantMsg: ChatMessage = msg.message ?? {
+          id: genId(),
+          role: 'assistant',
+          content: streamingTextRef.current,
+          timestamp: Date.now(),
+          toolCalls: pendingToolsRef.current.length > 0 ? pendingToolsRef.current : undefined,
+          thinking: thinkingTextRef.current || undefined,
+          usage: msg.usage,
+        };
+        setMessages((prev) => [...prev, assistantMsg]);
         setStreamingText('');
         setThinkingText('');
         setPendingTools([]);
@@ -139,6 +134,10 @@ export default function App() {
         fetchSessions();
         break;
       }
+
+      case 'api_response':
+        // Backend accumulates inference data into the final message; no-op here.
+        break;
 
       case 'error':
         toastRef.current.show({

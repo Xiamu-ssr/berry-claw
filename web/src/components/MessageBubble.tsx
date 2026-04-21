@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import CodeBlock from './CodeBlock';
 import ToolCallCard from './ToolCallCard';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, InferenceInfo } from '../types';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -79,6 +79,11 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             {message.usage.inputTokens}↓ {message.usage.outputTokens}↑
           </div>
         )}
+
+        {/* Per-inference token / cost details */}
+        {!isUser && message.inferences && message.inferences.length > 0 && (
+          <InferenceDetails inferences={message.inferences} totalUsage={message.usage} />
+        )}
       </div>
     </div>
   );
@@ -103,6 +108,46 @@ function CompletedThinking({ text }: { text: string }) {
       {expanded && (
         <div className="px-3 py-2 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-700 max-h-48 overflow-y-auto">
           <p className="text-xs text-gray-500 italic whitespace-pre-wrap">{text}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InferenceDetails({ inferences, totalUsage }: { inferences: InferenceInfo[]; totalUsage?: { inputTokens: number; outputTokens: number } }) {
+  const [expanded, setExpanded] = useState(false);
+  const totalCost = inferences.reduce((sum, inf) => sum + (inf.cost ?? 0), 0);
+
+  return (
+    <div className="mt-1 ml-1">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1"
+      >
+        <span>{inferences.length} inference{inferences.length > 1 ? 's' : ''}</span>
+        {totalCost > 0 && <span>· ${totalCost.toFixed(4)}</span>}
+        {expanded
+          ? <ChevronDown size={12} className="flex-shrink-0" />
+          : <ChevronRight size={12} className="flex-shrink-0" />}
+      </button>
+      {expanded && (
+        <div className="mt-1 space-y-1">
+          {inferences.map((inf, i) => (
+            <div key={i} className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+              <span className="text-gray-600 dark:text-gray-300">{inf.model}</span>
+              {' · '}
+              {inf.inputTokens}↓ {inf.outputTokens}↑
+              {inf.cacheReadTokens ? ` · cache ${inf.cacheReadTokens}R` : ''}
+              {inf.cacheWriteTokens ? ` · cache ${inf.cacheWriteTokens}W` : ''}
+              {inf.cost != null && ` · $${inf.cost.toFixed(5)}`}
+            </div>
+          ))}
+          {totalUsage && (
+            <div className="text-xs text-gray-600 dark:text-gray-300 font-medium border-t border-gray-200 dark:border-gray-700 pt-1 mt-1">
+              Turn total: {totalUsage.inputTokens}↓ {totalUsage.outputTokens}↑
+              {totalCost > 0 && ` · $${totalCost.toFixed(4)}`}
+            </div>
+          )}
         </div>
       )}
     </div>

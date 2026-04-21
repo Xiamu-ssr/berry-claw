@@ -4,13 +4,29 @@
  */
 import type { Agent, Session, AgentEvent, QueryResult } from '@berry-agent/core';
 
+export interface InferenceInfo {
+  /** Model id used for this inference round */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  stopReason: string;
+  /** Estimated cost in USD */
+  cost?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
   toolCalls?: Array<{ name: string; input: unknown; isError?: boolean }>;
+  /** Per-inference rounds within this assistant turn */
+  inferences?: InferenceInfo[];
+  /** Total usage for the entire turn (sum of inferences) */
   usage?: { inputTokens: number; outputTokens: number };
+  thinking?: string;
 }
 
 export interface SessionState {
@@ -76,6 +92,8 @@ export class SessionManager {
     content: string,
     toolCalls?: ChatMessage['toolCalls'],
     usage?: ChatMessage['usage'],
+    thinking?: string,
+    inferences?: InferenceInfo[],
   ): ChatMessage {
     const state = this.getOrCreateState(sessionId);
     const msg: ChatMessage = {
@@ -85,6 +103,8 @@ export class SessionManager {
       timestamp: Date.now(),
       toolCalls,
       usage,
+      thinking: thinking || undefined,
+      inferences: inferences && inferences.length > 0 ? inferences : undefined,
     };
     state.messages.push(msg);
     state.lastActiveAt = Date.now();

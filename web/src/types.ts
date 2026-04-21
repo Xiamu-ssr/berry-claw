@@ -25,6 +25,16 @@ export interface ModelInfo {
   type: string;
 }
 
+export interface InferenceInfo {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+  stopReason: string;
+  cost?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -33,6 +43,7 @@ export interface ChatMessage {
   toolCalls?: ToolCallInfo[];
   thinking?: string;
   usage?: { inputTokens: number; outputTokens: number };
+  inferences?: InferenceInfo[];
 }
 
 export interface ToolCallInfo {
@@ -73,6 +84,12 @@ export type WsIncoming =
   | { type: 'thinking_delta'; thinking: string }
   | { type: 'tool_call'; name: string; input: unknown }
   | { type: 'tool_result'; name: string; isError: boolean }
+  | {
+      type: 'api_response';
+      model: string;
+      usage: { inputTokens: number; outputTokens: number; cacheWriteTokens?: number; cacheReadTokens?: number };
+      stopReason: string;
+    }
   | { type: 'api_call'; messages: number; tools: number }
   | { type: 'status_change'; status: AgentStatus; detail?: string }
   | { type: 'todo_updated'; sessionId: string; todos: TodoItem[]; timestamp: number }
@@ -85,7 +102,7 @@ export type WsIncoming =
       errorMessage: string;
       delayMs: number;
     }
-  | { type: 'done'; sessionId: string; usage: any; totalUsage: any; toolCalls: number }
+  | { type: 'done'; sessionId: string; message: ChatMessage; usage: any; totalUsage: any; toolCalls: number }
   | { type: 'error'; message: string }
   | { type: 'session_cleared' }
   | { type: 'session_resumed'; sessionId: string; messages?: ChatMessage[] }
