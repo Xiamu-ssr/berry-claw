@@ -92,6 +92,17 @@ export class SessionManager {
     return msg;
   }
 
+  /** Get a cached session state */
+  getState(sessionId: string): SessionState | null {
+    return this.sessions.get(sessionId) ?? null;
+  }
+
+  /** Upsert a hydrated/persisted session state */
+  upsertState(state: SessionState): SessionState {
+    this.sessions.set(state.id, state);
+    return state;
+  }
+
   /** Get message history for a session */
   getMessages(sessionId: string): ChatMessage[] {
     return this.sessions.get(sessionId)?.messages ?? [];

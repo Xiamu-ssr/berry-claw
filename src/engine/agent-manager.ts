@@ -24,6 +24,10 @@ import type {
   AgentEvent,
   QueryResult,
   ToolRegistration,
+  Session,
+  ContentBlock,
+  ToolUseContent,
+  ToolResultContent,
 } from '@berry-agent/core';
 import { compositeGuard, directoryScope, denyList } from '@berry-agent/safe';
 import { createObserver, type Observer, type ModelPricing } from '@berry-agent/observe';
@@ -39,6 +43,7 @@ import { SYSTEM_PROMPT } from '../agent/prompt.js';
 import { ConfigManager, type AgentEntry } from './config-manager.js';
 import { SessionManager, type ChatMessage } from './session-manager.js';
 import { join } from 'node:path';
+import { createFileMemoryProvider } from '@berry-agent/memory-file';
 import { mkdirSync, existsSync } from 'node:fs';
 
 const TOOL_GROUPS: Record<string, readonly string[]> = {
@@ -128,7 +133,9 @@ export class AgentManager {
       'anthropic/claude-opus-4.6': opus4,
     };
     this.observer = createObserver({ dbPath: join(this.config.appDir, 'observe.db'), pricingOverrides });
-    this.activeAgentId = this.config.defaultAgent;
+    // Persisted defaultAgent may be empty; fall back to the first configured
+    // agent so the app still boots into a usable state after restart.
+    this.activeAgentId = this.config.defaultAgent || this.config.listAgents()[0]?.id || '';
   }
 
   /** Get or create an agent instance by ID */
@@ -164,14 +171,19 @@ export class AgentManager {
     // Build tools based on config
     const tools = buildTools(workspace, entry, this.credentials);
 
-    // Note: setting `workspace` triggers FileAgentMemory auto-init at
-    // {workspace}/MEMORY.md inside Agent constructor — no manual wiring needed.
+    // Memory provider: FTS5-backed search over MEMORY.md + memory/*.md
+    const memoryProvider = createFileMemoryProvider({ workspaceDir: workspace });
+    // sync() builds the FTS index; fire-and-forget is fine — it uses sync IO internally
+    // and finishes near-instantly. The first search call will hit a warm index.
+    memoryProvider.sync().catch(() => {/* best-effort */});
+
     const agent = new Agent({
       provider: providerConfig,
       systemPrompt,
       tools,
       cwd: workspace,
       workspace,
+      memory: memoryProvider,
       skillDirs: entry.skillDirs,
       sessionStore: new FileSessionStore(sessionsDir),
       toolGuard: compositeGuard(
@@ -240,6 +252,8 @@ export class AgentManager {
     const entry = this.config.getAgent(agentId);
     if (!entry) throw new Error(`Agent "${agentId}" not found`);
     this.activeAgentId = agentId;
+    // Persist selection so restart doesn't drop the active agent/session list.
+    this.config.update({ defaultAgent: agentId });
   }
 
   /** Switch model for current agent */
@@ -247,6 +261,44 @@ export class AgentManager {
     const providerConfig = this.config.toProviderConfig(model);
     if (!providerConfig) throw new Error(`Model "${model}" not found`);
     this.getAgent().switchProvider(providerConfig);
+  }
+
+  /**
+   * Load a persisted SDK session from disk and hydrate berry-claw's richer UI
+   * session state cache. This makes sessions survive server restarts instead of
+   * living only in SessionManager's in-memory map.
+   */
+  async loadSessionState(sessionId: string, agentId?: string): Promise<import('./session-manager.js').SessionState | null> {
+    const cached = this.sessions.getState(sessionId);
+    if (cached && cached.messages.length > 0) return cached;
+
+    const targetId = agentId ?? this.activeAgentId;
+    if (!targetId || !this.config.getAgent(targetId)) return cached;
+
+    const agent = this.getAgent(targetId);
+    const session = await agent.getSession(sessionId);
+    if (!session) return cached;
+
+    const state = hydrateSessionState(session);
+    this.sessions.upsertState(state);
+    return state;
+  }
+
+  /** List all persisted sessions for the active/current agent, hydrated for UI. */
+  async listSessionStates(agentId?: string): Promise<import('./session-manager.js').SessionState[]> {
+    // Without a configured agent there is no workspace to enumerate; this
+    // endpoint must stay safe so the UI can render an empty state.
+    const targetId = agentId ?? this.activeAgentId;
+    if (!targetId || !this.config.getAgent(targetId)) {
+      return this.sessions.listSessions();
+    }
+
+    const agent = this.getAgent(targetId);
+    const ids = await agent.listSessions();
+    for (const id of ids) {
+      await this.loadSessionState(id, targetId);
+    }
+    return this.sessions.listSessions();
   }
 
   /** Chat with active agent */
@@ -302,6 +354,13 @@ export class AgentManager {
     };
   }
 
+  /** Status snapshot for an agent, or null if the instance isn't created yet. */
+  getAgentStatus(agentId: string): { status: string; detail?: string } | null {
+    const inst = this.agents.get(agentId);
+    if (!inst) return null;
+    return { status: inst.agent.status, detail: inst.agent.statusDetail };
+  }
+
   /** Current model info */
   currentModel(): { model: string; providerName: string; type: string } | null {
     const instance = this.agents.get(this.activeAgentId);
@@ -315,4 +374,100 @@ export class AgentManager {
   get activeAgent(): string { return this.activeAgentId; }
 
   close(): void { this.observer.close(); }
+}
+
+function hydrateSessionState(session: Session): import('./session-manager.js').SessionState {
+  return {
+    id: session.id,
+    title: deriveSessionTitle(session),
+    messages: hydrateChatMessages(session.messages),
+    createdAt: session.createdAt,
+    lastActiveAt: session.lastAccessedAt,
+  };
+}
+
+function deriveSessionTitle(session: Session): string | undefined {
+  const firstUser = session.messages.find(m => m.role === 'user' && typeof m.content === 'string');
+  if (!firstUser || typeof firstUser.content !== 'string') return undefined;
+  return firstUser.content.length > 30 ? `${firstUser.content.slice(0, 30)}...` : firstUser.content;
+}
+
+function hydrateChatMessages(messages: Session['messages']): ChatMessage[] {
+  const out: ChatMessage[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!;
+
+    if (msg.role === 'user') {
+      // Real user prompt
+      if (typeof msg.content === 'string') {
+        out.push({
+          id: `msg_${msg.createdAt}_${i}`,
+          role: 'user',
+          content: msg.content,
+          timestamp: msg.createdAt ?? Date.now(),
+        });
+        continue;
+      }
+
+      // Synthetic tool_result carrier message — UI doesn't show it as a user turn.
+      const blocks = Array.isArray(msg.content) ? msg.content : [];
+      const hasUserText = blocks.some(b => b.type === 'text');
+      if (!hasUserText) continue;
+
+      const text = blocks
+        .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+        .map(b => b.text)
+        .join('\n');
+      if (text) {
+        out.push({
+          id: `msg_${msg.createdAt}_${i}`,
+          role: 'user',
+          content: text,
+          timestamp: msg.createdAt ?? Date.now(),
+        });
+      }
+      continue;
+    }
+
+    // Assistant message: collect visible text + tool calls
+    const blocks = typeof msg.content === 'string' ? [] : msg.content;
+    const text = typeof msg.content === 'string'
+      ? msg.content
+      : blocks.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map(b => b.text).join('\n');
+
+    const toolCalls = typeof msg.content === 'string'
+      ? undefined
+      : hydrateToolCalls(blocks, messages[i + 1]);
+
+    out.push({
+      id: `msg_${msg.createdAt}_${i}`,
+      role: 'assistant',
+      content: text,
+      timestamp: msg.createdAt ?? Date.now(),
+      toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
+    });
+  }
+
+  return out;
+}
+
+function hydrateToolCalls(blocks: ContentBlock[], nextMessage?: Session['messages'][number]): ChatMessage['toolCalls'] {
+  const toolUses = blocks.filter((b): b is ToolUseContent => b.type === 'tool_use');
+  if (toolUses.length === 0) return undefined;
+
+  const resultById = new Map<string, ToolResultContent>();
+  if (nextMessage?.role === 'user' && Array.isArray(nextMessage.content)) {
+    for (const block of nextMessage.content) {
+      if (block.type === 'tool_result') {
+        resultById.set(block.toolUseId, block);
+      }
+    }
+  }
+
+  return toolUses.map((toolUse) => ({
+    name: toolUse.name,
+    input: toolUse.input,
+    isError: resultById.get(toolUse.id)?.isError,
+  }));
 }

@@ -29,12 +29,14 @@
   },
   "dependencies": {
     "@berry-agent/core": "file:../berry-agent-sdk/packages/core",
+    "@berry-agent/memory-file": "file:../berry-agent-sdk/packages/memory-file",
     "@berry-agent/observe": "file:../berry-agent-sdk/packages/observe",
     "@berry-agent/safe": "file:../berry-agent-sdk/packages/safe",
     "@berry-agent/tools-common": "file:../berry-agent-sdk/packages/tools-common",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "nanoid": "^5.1.0",
+    "playwright-core": "^1.59.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

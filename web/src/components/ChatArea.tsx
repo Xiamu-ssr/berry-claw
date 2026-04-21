@@ -18,12 +18,31 @@ interface ChatAreaProps {
 export default function ChatArea({ messages, streamingText, thinkingText, pendingTools, isLoading, onSend }: ChatAreaProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [stickToBottom, setStickToBottom] = useState(true);
 
-  // Auto-scroll to bottom
+  // Track whether the user is at (or near) the bottom; if they scrolled up,
+  // don't force auto-scroll on new content.
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const threshold = 80; // px of slack so tiny scroll gestures still stick
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+    setStickToBottom(atBottom);
+  };
+
+  // Auto-scroll to bottom only when the user is already there.
   useEffect(() => {
+    if (stickToBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, streamingText, pendingTools, thinkingText, stickToBottom]);
+
+  const jumpToBottom = () => {
+    setStickToBottom(true);
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingText, pendingTools, thinkingText]);
+  };
 
   // Auto-resize textarea
   useEffect(() => {
@@ -52,7 +71,20 @@ export default function ChatArea({ messages, streamingText, thinkingText, pendin
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-900">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-6 py-4 relative"
+      >
+        {!stickToBottom && (messages.length > 0 || hasStreamingContent) && (
+          <button
+            onClick={jumpToBottom}
+            className="sticky bottom-2 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-full bg-gray-900/80 dark:bg-gray-100/80 text-white dark:text-gray-900 text-xs shadow-lg hover:bg-gray-900 dark:hover:bg-gray-100 transition-colors flex items-center gap-1"
+            style={{ float: 'none', margin: '0 auto', display: 'block' }}
+          >
+            ↓ Jump to latest
+          </button>
+        )}
         {messages.length === 0 && !hasStreamingContent && !isLoading && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">

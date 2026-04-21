@@ -54,7 +54,36 @@ export default function AgentsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [inspectData, setInspectData] = useState<Record<string, InspectRuntime | null>>({});
   const [inspectLoading, setInspectLoading] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, { status: string; detail?: string }>>({});
   const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '' });
+
+  // Fetch statuses once on mount, then update via WS status_change events.
+  // No polling — keeps network quiet when the page is just sitting there.
+  useEffect(() => {
+    let cancelled = false;
+    // Initial fetch
+    (async () => {
+      try {
+        const res = await fetch('/api/agents/statuses');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setStatuses(data.statuses ?? {});
+      } catch { /* ignore */ }
+    })();
+
+    // WS listener for incremental status updates
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'status_change' && msg.agentId) {
+          setStatuses(prev => ({ ...prev, [msg.agentId]: { status: msg.status, detail: msg.detail } }));
+        }
+      } catch { /* ignore */ }
+    };
+    return () => { cancelled = true; ws.close(); };
+  }, []);
 
   const loadInspect = useCallback(async (id: string) => {
     setInspectLoading(id);
@@ -264,6 +293,7 @@ export default function AgentsPage() {
                       {activeAgent === agent.id && (
                         <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">Active</span>
                       )}
+                      <StatusPill info={statuses[agent.id]} />
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
                       Model: <span className="font-mono text-xs">{agent.entry.model}</span>
@@ -308,6 +338,34 @@ export default function AgentsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// StatusPill — tiny runtime status badge per agent card
+// ============================================================
+function StatusPill({ info }: { info?: { status: string; detail?: string } }) {
+  if (!info) return null;
+  const s = info.status;
+  const map: Record<string, { emoji: string; label: string; cls: string }> = {
+    idle:             { emoji: '●', label: 'idle',      cls: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' },
+    thinking:         { emoji: '💡', label: 'thinking',  cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+    tool_executing:   { emoji: '🔨', label: 'tool',      cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+    compacting:       { emoji: '📚', label: 'compact',   cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+    memory_flushing:  { emoji: '🧠', label: 'memory',    cls: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300' },
+    delegating:       { emoji: '👥', label: 'delegate',  cls: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+    sleeping:         { emoji: '💤', label: 'sleeping',  cls: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' },
+    error:            { emoji: '❌', label: 'error',     cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+  };
+  const c = map[s] ?? { emoji: '○', label: s, cls: 'bg-gray-100 text-gray-500' };
+  return (
+    <span
+      className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${c.cls}`}
+      title={info.detail ? `${c.label} — ${info.detail}` : c.label}
+    >
+      <span>{c.emoji}</span>
+      <span>{c.label}</span>
+    </span>
   );
 }
 
