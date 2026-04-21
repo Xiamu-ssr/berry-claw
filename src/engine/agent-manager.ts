@@ -30,7 +30,7 @@ import type {
   ToolResultContent,
 } from '@berry-agent/core';
 import { compositeGuard, directoryScope, denyList } from '@berry-agent/safe';
-import { createObserver, type Observer, type ModelPricing } from '@berry-agent/observe';
+import { createObserver, calculateCost, type Observer, type ModelPricing } from '@berry-agent/observe';
 import {
   createAllTools,
   createBrowserTool,
@@ -44,6 +44,7 @@ import { ConfigManager, type AgentEntry } from './config-manager.js';
 import { SessionManager, type ChatMessage } from './session-manager.js';
 import { join } from 'node:path';
 import { createFileMemoryProvider } from '@berry-agent/memory-file';
+import { selectProvider } from '@berry-agent/models';
 import { mkdirSync, existsSync } from 'node:fs';
 
 const TOOL_GROUPS: Record<string, readonly string[]> = {
@@ -54,6 +55,22 @@ const TOOL_GROUPS: Record<string, readonly string[]> = {
   web_search: [TOOL_WEB_SEARCH],
   browser: [TOOL_BROWSER],
 };
+
+const TOOL_GROUP_LABELS: Record<string, string> = {
+  file: 'File',
+  shell: 'Shell',
+  search: 'Search',
+  web_fetch: 'Web Fetch',
+  web_search: 'Web Search',
+  browser: 'Browser',
+};
+
+export function getToolGroup(toolName: string): string {
+  for (const [group, names] of Object.entries(TOOL_GROUPS)) {
+    if (names.includes(toolName)) return TOOL_GROUP_LABELS[group] ?? group;
+  }
+  return 'Other';
+}
 
 /**
  * Pick a web_search provider based on which credential key is present.
@@ -113,6 +130,7 @@ export class AgentManager {
   readonly credentials: CredentialStore;
   private agents = new Map<string, AgentInstance>();
   private activeAgentId: string;
+  private pricingOverrides: Record<string, ModelPricing>;
 
   constructor() {
     this.config = new ConfigManager();
@@ -132,6 +150,7 @@ export class AgentManager {
       'anthropic/claude-opus-4-20250514': opus4,
       'anthropic/claude-opus-4.6': opus4,
     };
+    this.pricingOverrides = pricingOverrides;
     this.observer = createObserver({ dbPath: join(this.config.appDir, 'observe.db'), pricingOverrides });
     // Persisted defaultAgent may be empty; fall back to the first configured
     // agent so the app still boots into a usable state after restart.
@@ -152,10 +171,17 @@ export class AgentManager {
     const entry = this.config.getAgent(id);
     if (!entry) throw new Error(`Agent "${id}" not found in config`);
 
-    const providerConfig = this.config.toProviderConfig(entry.model);
-    if (!providerConfig) {
-      throw new Error(`No provider found for model "${entry.model}". Configure providers first.`);
-    }
+    // Resolve model spec ('tier:X' / 'model:X' / 'raw:...' / bare id) against
+    // the registry view of the config, producing either a static ProviderConfig
+    // (raw escape hatch) or a ProviderResolver with failover support.
+    const providerInput = selectProvider(entry.model, this.config.toModelsRegistry(), {
+      onRotate: (from, to, err) => {
+        console.warn(
+          `[agent:${id}] provider failover: ${from.providerId} → ${to.providerId}`,
+          err,
+        );
+      },
+    });
 
     const workspace = entry.workspace ?? this.config.agentWorkspace(id);
     if (!existsSync(workspace)) mkdirSync(workspace, { recursive: true });
@@ -178,7 +204,7 @@ export class AgentManager {
     memoryProvider.sync().catch(() => {/* best-effort */});
 
     const agent = new Agent({
-      provider: providerConfig,
+      provider: providerInput,
       systemPrompt,
       tools,
       cwd: workspace,
@@ -224,11 +250,14 @@ export class AgentManager {
     // 1. System prompt
     cached.agent.setSystemPrompt(entry.systemPrompt ?? '');
 
-    // 2. Model (if changed and provider keyed by model name)
+    // 2. Model (if changed) — hot swap via static ProviderConfig using the
+    //    first provider in the new model's binding. A full resolver swap on
+    //    hot reload would require tearing down the Agent instance, which the
+    //    reload path explicitly avoids.
     try {
-      if (entry.model && entry.model !== cached.agent.currentProvider.model) {
-        const providerConfig = this.config.toProviderConfig(entry.model);
-        if (providerConfig) cached.agent.switchProvider(providerConfig);
+      if (entry.model && entry.model !== cached.entry.model) {
+        const nextCfg = resolveStaticProviderConfig(entry.model, this.config);
+        if (nextCfg) cached.agent.switchProvider(nextCfg);
       }
     } catch (err) {
       console.warn(`[reload] model switch failed for ${agentId}:`, err);
@@ -256,11 +285,18 @@ export class AgentManager {
     this.config.update({ defaultAgent: agentId });
   }
 
-  /** Switch model for current agent */
+  /**
+   * Switch model for the current agent.
+   *
+   * Uses the same 3-layer resolution as initAgent(): tier/model/raw spec,
+   * falling back to the first provider of a bare model id. For hot swap we
+   * collapse down to a static ProviderConfig so switchProvider() can accept
+   * it without having to rewire the Agent instance.
+   */
   switchModel(model: string): void {
-    const providerConfig = this.config.toProviderConfig(model);
-    if (!providerConfig) throw new Error(`Model "${model}" not found`);
-    this.getAgent().switchProvider(providerConfig);
+    const staticCfg = resolveStaticProviderConfig(model, this.config);
+    if (!staticCfg) throw new Error(`Model "${model}" not found`);
+    this.getAgent().switchProvider(staticCfg);
   }
 
   /**
@@ -311,6 +347,8 @@ export class AgentManager {
 
     const toolCalls: ChatMessage['toolCalls'] = [];
     let streamText = '';
+    let thinkingText = '';
+    const inferences: import('./session-manager.js').InferenceInfo[] = [];
 
     const result = await agent.query(prompt, {
       resume: sessionId,
@@ -318,10 +356,29 @@ export class AgentManager {
       onEvent: (event) => {
         options?.onEvent?.(event);
         if (event.type === 'text_delta') streamText += event.text;
+        else if (event.type === 'thinking_delta') thinkingText += event.thinking;
         else if (event.type === 'tool_call') toolCalls.push({ name: event.name, input: event.input });
         else if (event.type === 'tool_result') {
           const last = [...toolCalls].reverse().find(t => t.name === event.name);
           if (last) last.isError = event.isError;
+        } else if (event.type === 'api_response') {
+          const cost = calculateCost(
+            event.model,
+            event.usage.inputTokens,
+            event.usage.outputTokens,
+            event.usage.cacheReadTokens ?? 0,
+            event.usage.cacheWriteTokens ?? 0,
+            this.pricingOverrides,
+          );
+          inferences.push({
+            model: event.model,
+            inputTokens: event.usage.inputTokens,
+            outputTokens: event.usage.outputTokens,
+            cacheWriteTokens: event.usage.cacheWriteTokens,
+            cacheReadTokens: event.usage.cacheReadTokens,
+            stopReason: event.stopReason,
+            cost: cost.totalCost,
+          });
         }
       },
     });
@@ -332,6 +389,8 @@ export class AgentManager {
       result.text,
       toolCalls.length > 0 ? toolCalls : undefined,
       { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens },
+      thinkingText || undefined,
+      inferences,
     );
 
     return { result, assistantMessage };
@@ -361,19 +420,51 @@ export class AgentManager {
     return { status: inst.agent.status, detail: inst.agent.statusDetail };
   }
 
-  /** Current model info */
+  /**
+   * Current model info for the active agent. We report the model id as seen
+   * by the agent's live provider — this may be the upstream remoteModelId
+   * after failover, which is exactly what the UI should surface.
+   */
   currentModel(): { model: string; providerName: string; type: string } | null {
     const instance = this.agents.get(this.activeAgentId);
     if (!instance) return null;
     const config = instance.agent.currentProvider;
-    const resolved = this.config.resolveModel(config.model);
-    if (!resolved) return { model: config.model, providerName: 'unknown', type: config.type };
-    return { model: config.model, providerName: resolved.providerName, type: resolved.provider.type };
+    const entry = this.config.getAgent(this.activeAgentId);
+    // Best-effort: prefer the agent entry's model spec for display purposes;
+    // fall back to the raw model id coming out of the provider.
+    return {
+      model: entry?.model ?? config.model,
+      providerName: config.type,
+      type: config.type,
+    };
   }
 
   get activeAgent(): string { return this.activeAgentId; }
 
   close(): void { this.observer.close(); }
+}
+
+/**
+ * Resolve a model spec (tier:X / model:X / raw:... / bare id) down to a
+ * static ProviderConfig. Used by hot-swap paths that can't rewire the
+ * Agent instance; chooses the binding's first provider and returns null
+ * when the spec can't be resolved.
+ */
+function resolveStaticProviderConfig(
+  spec: string,
+  config: ConfigManager,
+): import('@berry-agent/core').ProviderConfig | null {
+  try {
+    const registry = config.toModelsRegistry();
+    const resolved = selectProvider(spec, registry);
+    if ('resolve' in resolved && typeof (resolved as { resolve?: unknown }).resolve === 'function') {
+      return (resolved as { resolve: () => import('@berry-agent/core').ProviderConfig }).resolve();
+    }
+    return resolved as import('@berry-agent/core').ProviderConfig;
+  } catch {
+    // Bare model id that isn't in the registry? Fall back to first provider.
+    return config.toProviderConfig(spec);
+  }
 }
 
 function hydrateSessionState(session: Session): import('./session-manager.js').SessionState {
@@ -430,11 +521,15 @@ function hydrateChatMessages(messages: Session['messages']): ChatMessage[] {
       continue;
     }
 
-    // Assistant message: collect visible text + tool calls
+    // Assistant message: collect visible text + tool calls + thinking
     const blocks = typeof msg.content === 'string' ? [] : msg.content;
     const text = typeof msg.content === 'string'
       ? msg.content
       : blocks.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map(b => b.text).join('\n');
+
+    const thinking = typeof msg.content === 'string'
+      ? undefined
+      : blocks.filter((b): b is Extract<ContentBlock, { type: 'thinking' }> => b.type === 'thinking').map(b => b.thinking).join('\n') || undefined;
 
     const toolCalls = typeof msg.content === 'string'
       ? undefined
@@ -446,6 +541,7 @@ function hydrateChatMessages(messages: Session['messages']): ChatMessage[] {
       content: text,
       timestamp: msg.createdAt ?? Date.now(),
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
+      thinking,
     });
   }
 
