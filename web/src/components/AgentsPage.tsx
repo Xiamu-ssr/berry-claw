@@ -164,6 +164,13 @@ export default function AgentsPage() {
 
   useEffect(() => { fetchAgents(); fetchModels(); }, [fetchAgents, fetchModels]);
 
+  // Refresh when another tab (or server push) mutates agent config.
+  useEffect(() => {
+    const handler = () => { fetchAgents(); fetchModels(); };
+    window.addEventListener('berry:config-changed', handler);
+    return () => window.removeEventListener('berry:config-changed', handler);
+  }, [fetchAgents, fetchModels]);
+
   const handleCreate = async () => {
     if (!form.id || !form.name || !form.model) return;
     await fetch(`/api/agents/${form.id}`, {

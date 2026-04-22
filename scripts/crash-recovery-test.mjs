@@ -1,16 +1,26 @@
 #!/usr/bin/env node
 // ============================================================
-// Crash Recovery Test — Berry-Claw v1.4 DURABILITY
-// Uses a mock provider so no real API key needed.
+// Crash Recovery Test — Berry-Claw v1.4+v1.5 DURABILITY
+// Uses real API via .env.local (BERRY_TEST_API_KEY/BASE_URL/MODEL).
+// Falls back to mock provider if no API key.
 // ============================================================
 
+import { config } from 'dotenv';
+import { resolve } from 'node:path';
 import { Agent, FileEventLogStore, FileSessionStore } from '@berry-agent/core';
 import fs from 'fs';
 import path from 'path';
 
-const TEST_DIR = `/tmp/berry-crash-test-${Date.now()}`;
+// Load env
+config({ path: resolve(import.meta.dirname, '../.env.local') });
 
-// Mock provider: always returns a simple text response
+const TEST_DIR = `/tmp/berry-crash-test-${Date.now()}`;
+const API_KEY = process.env.BERRY_TEST_API_KEY;
+const BASE_URL = process.env.BERRY_TEST_BASE_URL;
+const MODEL = process.env.BERRY_TEST_MODEL ?? 'anthropic/claude-haiku-4.5';
+const USE_REAL_API = !!API_KEY;
+
+// Mock provider fallback
 const mockProvider = {
   type: 'openai',
   chat: async () => ({
@@ -27,8 +37,34 @@ const mockProvider = {
   },
 };
 
+function makeAgentConfig(sessionStore, eventLog) {
+  if (USE_REAL_API) {
+    return {
+      provider: {
+        type: 'anthropic',
+        apiKey: API_KEY,
+        baseUrl: BASE_URL,
+        model: MODEL,
+      },
+      systemPrompt: 'You are a helpful assistant. Keep answers very short (one sentence).',
+      sessionStore,
+      eventLogStore: eventLog,
+      tools: [],
+    };
+  } else {
+    return {
+      provider: { type: 'openai', apiKey: 'fake', model: 'gpt-4o-mini' },
+      providerInstance: mockProvider,
+      systemPrompt: 'You are a helpful assistant. Keep answers short.',
+      sessionStore,
+      eventLogStore: eventLog,
+      tools: [],
+    };
+  }
+}
+
 async function runTest() {
-  console.log('\n🍓 Crash Recovery Test — v1.4 DURABILITY (mock provider)\n');
+  console.log(`\n🍓 Crash Recovery Test — ${USE_REAL_API ? 'REAL API' : 'mock'} (${MODEL})\n`);
   console.log(`Data dir: ${TEST_DIR}\n`);
 
   fs.mkdirSync(TEST_DIR, { recursive: true });
@@ -41,85 +77,57 @@ async function runTest() {
   const eventLog = new FileEventLogStore(TEST_DIR);
   const sessionStore = new FileSessionStore(path.join(TEST_DIR, 'sessions'));
 
-  const agent = new Agent({
-    name: 'crash-test',
-    provider: { type: 'openai', apiKey: 'fake', model: 'gpt-4o-mini' },
-    providerInstance: mockProvider,
-    systemPrompt: 'You are a helpful assistant. Keep answers short.',
-    sessionStore,
-    eventLogStore: eventLog,
-    tools: [],
-  });
+  const agent = new Agent(makeAgentConfig(sessionStore, eventLog));
 
-  console.log('\n📤 Query 1: "What is 2+2?"');
-  const result1 = await agent.query('What is 2+2?');
-  console.log(`📥 Response: "${result1.text}"`);
+  console.log('\n📤 Query 1: "My favorite color is blue."');
+  const result1 = await agent.query('Remember this: my favorite color is blue. Just confirm.');
+  console.log(`📥 Response: "${result1.text.slice(0, 120)}..."`);
   console.log(`   Tokens: ${result1.usage.inputTokens} in / ${result1.usage.outputTokens} out`);
+  const sessionId1 = result1.sessionId;
 
-  console.log('\n📤 Query 2: "What is 3+3?"');
-  const result2 = await agent.query('What is 3+3?');
-  console.log(`📥 Response: "${result2.text}"`);
+  console.log('\n📤 Query 2 (same session): "What is 7 * 8?"');
+  const result2 = await agent.query('What is 7 * 8? Just the number.', { resume: sessionId1 });
+  console.log(`📥 Response: "${result2.text.slice(0, 120)}..."`);
 
   const sessionId = agent['_lastSessionId'];
   console.log(`\n📝 Session ID: ${sessionId}`);
 
-  // Read events before crash
   const eventsBefore = await eventLog.getEvents(sessionId);
   console.log(`\n📊 Event log BEFORE crash: ${eventsBefore.length} events`);
 
-  const snapshotEvents = eventsBefore.filter(e => e.type === 'messages_snapshot');
-  const startEvents = eventsBefore.filter(e => e.type === 'session_start');
-  const reqEvents = eventsBefore.filter(e => e.type === 'api_request');
-  const respEvents = eventsBefore.filter(e => e.type === 'api_response');
+  const byType = {};
+  for (const ev of eventsBefore) byType[ev.type] = (byType[ev.type] || 0) + 1;
+  for (const [type, count] of Object.entries(byType).sort()) {
+    console.log(`   ${type}: ${count}`);
+  }
 
-  console.log(`   session_start:      ${startEvents.length}`);
-  console.log(`   messages_snapshot:  ${snapshotEvents.length}`);
-  console.log(`   api_request:        ${reqEvents.length}`);
-  console.log(`   api_response:       ${respEvents.length}`);
+  if ((byType['session_start'] || 0) === 0) throw new Error('No session_start!');
+  if ((byType['messages_snapshot'] || 0) === 0) throw new Error('No messages_snapshot!');
 
-  if (startEvents.length === 0) throw new Error('No session_start!');
-  if (snapshotEvents.length === 0) throw new Error('No messages_snapshot!');
-
-  // Get messages before crash
   const sessionBefore = await sessionStore.load(sessionId);
   const msgCountBefore = sessionBefore?.messages?.length || 0;
   console.log(`\n💬 Messages in session BEFORE: ${msgCountBefore}`);
   sessionBefore.messages.forEach((m, i) => {
-    const preview = typeof m.content === 'string' ? m.content : JSON.stringify(m.content).slice(0, 60);
-    console.log(`   [${i}] ${m.role}: ${preview}...`);
+    const preview = typeof m.content === 'string' ? m.content.slice(0, 80) : JSON.stringify(m.content).slice(0, 80);
+    console.log(`   [${i}] ${m.role}: ${preview}`);
   });
 
-  // Phase 2: Simulate crash — use Agent.fromLog() to rehydrate
+  // Phase 2: Simulate crash — new process → fresh Agent — resume by id.
+  //          Crash recovery is SDK-internal: product code just calls new Agent + query.
   console.log('\n' + '━'.repeat(60));
-  console.log('Phase 2: Crash recovery via Agent.fromLog()');
+  console.log('Phase 2: Simulated restart — new Agent + query({resume})');
   console.log('━'.repeat(60));
 
-  // "Kill" agent by dropping the reference
-  // (no destroy() method on Agent)
+  console.log(`\n🔄 Creating fresh Agent, resuming ${sessionId}...`);
+  const agent2 = new Agent(makeAgentConfig(sessionStore, eventLog));
 
-  console.log(`\n🔄 Agent.fromLog(${sessionId})...`);
-  const agent2 = await Agent.fromLog({
-    sessionId,
-    eventLogStore: eventLog,
-    provider: { type: 'openai', apiKey: 'fake', model: 'gpt-4o-mini' },
-    tools: [],
-    sessionStore,
-  });
-  // Swap in the mock provider post-construction
-  // eslint-disable-next-line
-  (agent2)['provider'] = mockProvider;
-
-  console.log(`\n🔄 Auto-resume (via _pendingResumeSessionId)...`);
+  console.log('🔄 Verifying session state before next query...');
   const sessionAfter = await agent2.getSession(sessionId);
 
   if (!sessionAfter) throw new Error('Session not found after recovery!');
 
   const msgCountAfter = sessionAfter.messages?.length || 0;
   console.log(`💬 Messages in session AFTER:  ${msgCountAfter}`);
-  sessionAfter.messages.forEach((m, i) => {
-    const preview = typeof m.content === 'string' ? m.content : JSON.stringify(m.content).slice(0, 60);
-    console.log(`   [${i}] ${m.role}: ${preview}...`);
-  });
 
   // Phase 3: Validate
   console.log('\n' + '━'.repeat(60));
@@ -132,18 +140,12 @@ async function runTest() {
     console.log(`❌ Message count MISMATCH: ${msgCountBefore} vs ${msgCountAfter}`);
   }
 
-  // Deep compare all messages
   let allMatch = true;
   for (let i = 0; i < Math.max(msgCountBefore, msgCountAfter); i++) {
     const before = sessionBefore.messages[i];
     const after = sessionAfter.messages[i];
-    if (!before || !after) {
-      console.log(`❌ Message [${i}] missing on one side`);
-      allMatch = false;
-      continue;
-    }
-    const bContent = typeof before.content === 'string' ? before.content : JSON.stringify(before.content);
-    const aContent = typeof after.content === 'string' ? after.content : JSON.stringify(after.content);
+    const bContent = typeof before?.content === 'string' ? before.content : JSON.stringify(before?.content);
+    const aContent = typeof after?.content === 'string' ? after.content : JSON.stringify(after?.content);
     if (bContent !== aContent) {
       console.log(`❌ Message [${i}] content differs`);
       allMatch = false;
@@ -151,15 +153,25 @@ async function runTest() {
   }
   if (allMatch) console.log('✅ All message contents match');
 
-  // Phase 4: Post-recovery chat
+  // Phase 4: Post-recovery chat — verify memory
   console.log('\n' + '━'.repeat(60));
-  console.log('Phase 4: Post-recovery chat');
+  console.log('Phase 4: Post-recovery memory test');
   console.log('━'.repeat(60));
 
-  console.log('\n📤 Query 3 (post-recovery, no explicit resume): "What did I ask before?"');
-  const result3 = await agent2.query('What did I ask before? Summarize.');
-  console.log(`📥 Response: "${result3.text}"`);
-  console.log(`   Session ID: ${result3.sessionId} (should match ${sessionId})`);
+  console.log('\n📤 Query 3 (post-recovery, explicit resume): "What is my favorite color?"');
+  const result3 = await agent2.query('What is my favorite color? Just the color.', { resume: sessionId });
+  console.log(`📥 Response: "${result3.text.slice(0, 120)}"`);
+  console.log(`   Session ID: ${result3.sessionId}`);
+
+  if (USE_REAL_API && result3.text.toLowerCase().includes('blue')) {
+    console.log('✅ Agent REMEMBERED: "blue" from pre-crash turn!');
+  } else if (USE_REAL_API) {
+    console.log('⚠️ Agent did not say "blue" — but recovery mechanism still worked');
+  }
+
+  if (result3.sessionId !== sessionId) {
+    throw new Error(`Session ID drift: ${sessionId} → ${result3.sessionId}`);
+  }
 
   const eventsFinal = await eventLog.getEvents(sessionId);
   console.log(`\n📊 Final event log: ${eventsFinal.length} events`);
@@ -172,7 +184,7 @@ async function runTest() {
   console.log('🎉'.repeat(30));
 
   // ============================================================
-  // BONUS Test: Tool Crash Recovery
+  // BONUS: Tool Crash Recovery
   // ============================================================
   console.log('\n\n🚧 BONUS: Tool Crash Recovery Test\n');
 
@@ -181,71 +193,61 @@ async function runTest() {
   const eventLog2 = new FileEventLogStore(TEST_DIR2);
   const sessionStore2 = new FileSessionStore(path.join(TEST_DIR2, 'sessions'));
 
-  // Manually craft an event log simulating a tool crash:
-  // session_start → query_start → user_message → assistant_message (with tool_use)
-  // → tool_use_start → *** CRASH *** (no tool_use_end)
   const fakeSessionId = 'ses_crash_simulation';
   const now = Date.now();
   const crashEvents = [
-    {
-      id: 'evt_1', timestamp: now, sessionId: fakeSessionId, turnId: 'start',
-      type: 'session_start',
-      systemPrompt: ['You are a test agent.'],
-      toolsAvailable: ['mock_tool'],
-      guardEnabled: false,
-      providerType: 'openai',
-      model: 'gpt-4o-mini',
-    },
-    {
-      id: 'evt_2', timestamp: now + 10, sessionId: fakeSessionId, turnId: 't1',
-      type: 'user_message', content: 'Use mock_tool to write hello.txt',
-    },
-    {
-      id: 'evt_3', timestamp: now + 20, sessionId: fakeSessionId, turnId: 't1',
+    { id: 'evt_1', timestamp: now, sessionId: fakeSessionId, turnId: 'start',
+      type: 'session_start', systemPrompt: ['Test agent.'],
+      toolsAvailable: ['mock_tool'], guardEnabled: false,
+      providerType: 'openai', model: 'gpt-4o-mini' },
+    { id: 'evt_2', timestamp: now + 10, sessionId: fakeSessionId, turnId: 't1',
+      type: 'user_message', content: 'Use mock_tool' },
+    { id: 'evt_3', timestamp: now + 20, sessionId: fakeSessionId, turnId: 't1',
       type: 'assistant_message',
       content: [
-        { type: 'text', text: 'Sure, using mock_tool...' },
-        { type: 'tool_use', id: 'tool_abc123', name: 'mock_tool', input: { file: 'hello.txt' } },
-      ],
-    },
-    {
-      id: 'evt_4', timestamp: now + 30, sessionId: fakeSessionId, turnId: 't1',
-      type: 'tool_use_start',
-      name: 'mock_tool',
-      toolUseId: 'tool_abc123',
-      input: { file: 'hello.txt' },
-    },
-    // *** CRASH HERE *** no tool_use_end
+        { type: 'text', text: 'Using mock_tool...' },
+        { type: 'tool_use', id: 'tool_abc', name: 'mock_tool', input: { file: 'hello.txt' } },
+      ]},
+    { id: 'evt_4', timestamp: now + 30, sessionId: fakeSessionId, turnId: 't1',
+      type: 'tool_use_start', name: 'mock_tool', toolUseId: 'tool_abc',
+      input: { file: 'hello.txt' } },
+    // *** CRASH *** no tool_use_end
   ];
   for (const ev of crashEvents) {
     await eventLog2.append(fakeSessionId, ev);
   }
-  console.log(`  🔨 Wrote ${crashEvents.length} events (simulating crash after tool_use_start)`);
+  console.log(`  🔨 Wrote ${crashEvents.length} events (crash after tool_use_start)`);
 
-  // Rehydrate via fromLog — should detect the unmatched tool_use_start
   const mockTool = {
     definition: { name: 'mock_tool', description: 'test', inputSchema: { type: 'object' } },
     execute: async () => ({ content: 'ok', isError: false }),
   };
-  const recoveredAgent = await Agent.fromLog({
-    sessionId: fakeSessionId,
-    eventLogStore: eventLog2,
+  // New API: SDK internally detects crash on first query({resume}).
+  //          We verify by 1) attempting a query (which triggers resolveSession
+  //          → crash detection), 2) reading event log for the crash_recovered event.
+  const recoveredAgent = new Agent({
     provider: { type: 'openai', apiKey: 'fake', model: 'gpt-4o-mini' },
+    systemPrompt: 'Test agent.',
     tools: [mockTool],
     sessionStore: sessionStore2,
+    eventLogStore: eventLog2,
   });
-  // eslint-disable-next-line
-  (recoveredAgent)['provider'] = mockProvider;
+  try {
+    await recoveredAgent.query('noop', { resume: fakeSessionId });
+  } catch {
+    // Expected: provider is fake, but resolveSession runs crash detection first
+    // AND appends the crash_recovered event before the API call fails.
+  }
 
-  // Check that interject was queued
-  // eslint-disable-next-line
-  const pendingInterjects = (recoveredAgent)['_pendingInterjects'];
-  console.log(`  📩 Pending interjects after fromLog: ${pendingInterjects?.length || 0}`);
-  if (pendingInterjects && pendingInterjects.length > 0) {
-    console.log('  ✅ Tool crash detected! Warning queued:');
-    console.log(`     "${pendingInterjects[0].slice(0, 150)}..."`);
+  const allEvents = await eventLog2.getEvents(fakeSessionId);
+  const recoveryEvents = allEvents.filter(e => e.type === 'crash_recovered');
+  console.log(`  📩 crash_recovered events in log: ${recoveryEvents.length}`);
+  if (recoveryEvents.length === 1) {
+    const ev = recoveryEvents[0];
+    console.log(`  ✅ Audit event written: artifactCount=${ev.artifactCount}, orphaned=[${ev.orphanedTools.map(o => o.name).join(',')}]`);
+    console.log(`     interjected: ${ev.interjected}`);
   } else {
-    console.log('  ❌ FAIL: No interject queued for crashed tool');
+    console.log(`  ❌ FAIL: expected 1 crash_recovered event, got ${recoveryEvents.length}`);
     process.exit(1);
   }
 

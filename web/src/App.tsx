@@ -202,6 +202,12 @@ export default function App() {
         setMessages([]);
         break;
 
+      case 'config_changed': {
+        // Notify all interested components that they should refresh their data.
+        window.dispatchEvent(new CustomEvent('berry:config-changed', { detail: msg }));
+        break;
+      }
+
       case 'interject_acked':
         // Surface as a subtle system note in the chat log
         setMessages((prev) => [

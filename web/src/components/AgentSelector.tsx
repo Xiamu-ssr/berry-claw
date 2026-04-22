@@ -18,6 +18,14 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
 
   useEffect(() => { refresh(); }, []);
 
+  // Refresh when server broadcasts a config mutation (another tab or
+  // tool call changed agent settings).
+  useEffect(() => {
+    const handler = () => { refresh(); };
+    window.addEventListener('berry:config-changed', handler);
+    return () => window.removeEventListener('berry:config-changed', handler);
+  }, []);
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {

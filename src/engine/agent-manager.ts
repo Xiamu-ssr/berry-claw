@@ -592,11 +592,26 @@ export class AgentManager {
    * falling back to the first provider of a bare model id. For hot swap we
    * collapse down to a static ProviderConfig so switchProvider() can accept
    * it without having to rewire the Agent instance.
+   *
+   * v0.4 fix: writes the new model back to config so currentModel() and
+   * the UI have a single source of truth. Without this the chat frontend
+   * and the agent settings page show stale values after a switch.
    */
   switchModel(model: string): void {
     const staticCfg = resolveStaticProviderConfig(model, this.config);
     if (!staticCfg) throw new Error(`Model "${model}" not found`);
     this.getAgent().switchProvider(staticCfg);
+
+    // Persist the model choice so the UI and currentModel() agree.
+    const entry = this.config.getAgent(this.activeAgentId);
+    if (entry) {
+      entry.model = model;
+      this.config.setAgent(this.activeAgentId, entry);
+      this.config.save();
+      // Update the in-memory snapshot so getAgent() / currentModel() see it
+      const cached = this.agents.get(this.activeAgentId);
+      if (cached) cached.entry = entry;
+    }
   }
 
   /**
@@ -834,6 +849,14 @@ function hydrateChatMessages(messages: Session['messages']): ChatMessage[] {
     const toolCalls = typeof msg.content === 'string'
       ? undefined
       : hydrateToolCalls(blocks, messages[i + 1]);
+
+    // Skip empty assistant messages that have no visible content.
+    // These can appear when a query aborts before the model outputs any
+    // tokens (e.g. tool crash, guard deny, or transient API error). Sending
+    // an empty assistant message to the LLM API causes a 400.
+    if (!text && !thinking && (!toolCalls || toolCalls.length === 0)) {
+      continue;
+    }
 
     out.push({
       id: `msg_${msg.createdAt}_${i}`,

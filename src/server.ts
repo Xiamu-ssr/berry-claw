@@ -273,6 +273,7 @@ export function startServer(port: number) {
     });
     // Hot reload: drop cached Agent instance so next query re-reads config
     manager.reloadAgent(req.params.id);
+    broadcast('config_changed', { scope: 'agent', id: req.params.id });
     res.json({ ok: true });
   });
 
@@ -283,12 +284,14 @@ export function startServer(port: number) {
     const merged = { ...current, ...req.body };
     manager.config.setAgent(req.params.id, merged);
     manager.reloadAgent(req.params.id);
+    broadcast('config_changed', { scope: 'agent', id: req.params.id });
     res.json({ ok: true, entry: merged });
   });
 
   /** Delete agent */
   app.delete('/api/agents/:id', (req, res) => {
     manager.config.removeAgent(req.params.id);
+    broadcast('config_changed', { scope: 'agent', id: req.params.id, deleted: true });
     res.json({ ok: true });
   });
 
@@ -483,8 +486,20 @@ export function startServer(port: number) {
 
   const server = createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
+  /** Active WebSocket clients for broadcast pushes (config changes, etc.) */
+  const clients = new Set<WebSocket>();
+
+  function broadcast(type: string, payload: Record<string, unknown>): void {
+    const msg = JSON.stringify({ type, ...payload });
+    for (const client of clients) {
+      if (client.readyState === 1 /* OPEN */) {
+        client.send(msg);
+      }
+    }
+  }
 
   wss.on('connection', (ws) => {
+    clients.add(ws);
     console.log('🔌 Client connected');
 
     ws.on('message', async (data) => {
@@ -553,7 +568,10 @@ export function startServer(port: number) {
       }
     });
 
-    ws.on('close', () => console.log('🔌 Client disconnected'));
+    ws.on('close', () => {
+      clients.delete(ws);
+      console.log('🔌 Client disconnected');
+    });
   });
 
   server.listen(port, () => {
