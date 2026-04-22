@@ -15,6 +15,8 @@ interface AgentEntry {
     disabledTools?: string[];
     skillDirs?: string[];
     disabledSkills?: string[];
+    /** Present when this agent is a teammate — set by spawn_teammate. */
+    team?: { leaderId: string; role: string };
   };
 }
 
@@ -337,6 +339,14 @@ export default function AgentsPage() {
                         <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">Active</span>
                       )}
                       <StatusPill info={statuses[agent.id]} />
+                      {agent.entry.team && (
+                        <span
+                          className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full font-medium"
+                          title={`Teammate in team led by ${agent.entry.team.leaderId}`}
+                        >
+                          teammate of {agent.entry.team.leaderId}
+                        </span>
+                      )}
                     </div>
                     <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
                       Model: <span className="font-mono text-xs">{agent.entry.model}</span>

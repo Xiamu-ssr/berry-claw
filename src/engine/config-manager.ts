@@ -60,6 +60,22 @@ export interface AgentEntry {
   disabledTools?: string[];
   skillDirs?: string[];
   disabledSkills?: string[];
+
+  /**
+   * Team membership marker. When set, this agent is a teammate in the team
+   * led by `team.leaderId`. The teammate is still a *first-class agent* in
+   * this config (visible in the Agents tab, has its own session store) —
+   * the team relation is purely metadata.
+   *
+   * v1.2 (2026-04-22): introduced to stop having two kinds of agents. All
+   * agents are AgentEntry rows; the team field just describes who leads
+   * whom. Spawn_teammate writes a new AgentEntry with this field set.
+   */
+  team?: {
+    leaderId: string;
+    /** Human-readable role (e.g. "code reviewer"). */
+    role: string;
+  };
 }
 
 export interface AppConfig {

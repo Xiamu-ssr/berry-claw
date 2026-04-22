@@ -352,7 +352,12 @@ export class AgentManager {
     if (this.teams.has(agentId)) return;
     const teamFile = join(project, '.berry', 'team.json');
     if (!existsSync(teamFile)) return;
-    const team = await Team.open({ leaderId: agentId, leader: agent, project });
+    const team = await Team.open({
+      leaderId: agentId,
+      leader: agent,
+      project,
+      ...this.teamHooks(agentId, project),
+    });
     this.mountLeaderTools(agent, team);
     // Revive live teammate Agent instances from the persisted roster so the
     // leader's spawn_teammate / message_teammate calls work after a host
@@ -384,11 +389,98 @@ export class AgentManager {
     const agent = this.getAgent(agentId);
     let team = this.teams.get(agentId);
     if (!team) {
-      team = await Team.open({ leaderId: agentId, leader: agent, project: entry.project, name: teamName });
+      team = await Team.open({
+        leaderId: agentId,
+        leader: agent,
+        project: entry.project,
+        name: teamName,
+        ...this.teamHooks(agentId, entry.project),
+      });
       this.teams.set(agentId, team);
       this.mountLeaderTools(agent, team);
     }
     return team.state;
+  }
+
+  /**
+   * Build the Team hooks (agentFactory / onDisband / agentLookup /
+   * availableTiers) for a given leader + project. Factored out because
+   * both startTeam and tryRehydrateTeam need the same set.
+   */
+  private teamHooks(leaderId: string, project: string) {
+    return {
+      agentFactory: async (spec: Parameters<NonNullable<Parameters<typeof Team.open>[0]['agentFactory']>>[0]) => {
+        return this.createTeammateAgent(spec);
+      },
+      onDisband: async (teammateId: string) => {
+        // Remove the teammate's AgentEntry from the registry. Leaves the
+        // session log on disk (kept for audit). The dead in-memory Agent
+        // instance is dropped so memory doesn't leak.
+        this.agents.delete(teammateId);
+        try { this.config.removeAgent(teammateId); } catch { /* already gone */ }
+      },
+      agentLookup: (teammateId: string): Agent | undefined => {
+        // The host's view of this agent: if it's live in memory, return it;
+        // otherwise try to wake it lazily via getAgent(). We ignore errors
+        // so Team.rehydrateAll can skip broken entries gracefully.
+        if (!this.config.getAgent(teammateId)) return undefined;
+        if (this.agents.has(teammateId)) return this.agents.get(teammateId)?.agent;
+        try { return this.getAgent(teammateId); } catch { return undefined; }
+      },
+      availableTiers: (): string[] => {
+        return Object.keys(this.config.getTiers());
+      },
+    };
+  }
+
+  /**
+   * Create a first-class teammate agent. Implementation of the Team
+   * `agentFactory` hook. Writes an AgentEntry with team metadata, then
+   * kicks off initAgent to get a live Agent instance.
+   *
+   * v1.2: teammates are regular agents. They live in config.json,
+   * show up in the Agents tab, and have their own session store under
+   * ~/.berry-claw/agents/<teammate-id>/. The only distinguishing mark is
+   * `entry.team = { leaderId, role }`.
+   */
+  private async createTeammateAgent(spec: {
+    id: string;
+    role: string;
+    systemPrompt: string;
+    tier?: string;
+    model?: string;
+    inheritTools?: boolean;
+    project: string;
+    leaderId: string;
+  }): Promise<Agent> {
+    if (this.config.getAgent(spec.id)) {
+      throw new Error(`Agent id "${spec.id}" already exists in the registry. Pick a different teammate id.`);
+    }
+    // Pick the model reference. `tier:<name>` is the preferred form; it
+    // stays stable as models get swapped. Fall back to explicit model, and
+    // finally to the leader's model so the teammate at least runs.
+    let modelRef: string;
+    if (spec.tier) {
+      modelRef = `tier:${spec.tier}`;
+    } else if (spec.model) {
+      modelRef = spec.model;
+    } else {
+      const leaderEntry = this.config.getAgent(spec.leaderId);
+      modelRef = leaderEntry?.model ?? Object.values(this.config.getTiers())[0] ?? 'claude-opus-4.7';
+    }
+
+    const entry: AgentEntry = {
+      name: spec.role,
+      systemPrompt: spec.systemPrompt,
+      model: modelRef,
+      project: spec.project,
+      team: { leaderId: spec.leaderId, role: spec.role },
+    };
+    this.config.setAgent(spec.id, entry);
+    // initAgent below will create the agent instance lazily; getAgent is
+    // the happy path because it returns the cached instance on subsequent
+    // calls (and initAgent under the hood if missing).
+    return this.getAgent(spec.id);
   }
 
   /** Get the team this agent leads (if any). */
