@@ -9,6 +9,8 @@ interface AgentEntry {
     model: string;
     systemPrompt?: string;
     workspace?: string;
+    /** Optional path to the project root the agent works in. */
+    project?: string;
     tools?: string[];
     disabledTools?: string[];
     skillDirs?: string[];
@@ -56,7 +58,7 @@ export default function AgentsPage() {
   const [inspectData, setInspectData] = useState<Record<string, InspectRuntime | null>>({});
   const [inspectLoading, setInspectLoading] = useState<string | null>(null);
   const [statuses, setStatuses] = useState<Record<string, { status: string; detail?: string }>>({});
-  const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '' });
+  const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '', project: '' });
 
   // Fetch statuses once on mount, then update via WS status_change events.
   // No polling — keeps network quiet when the page is just sitting there.
@@ -165,10 +167,15 @@ export default function AgentsPage() {
     await fetch(`/api/agents/${form.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: form.name, model: form.model, systemPrompt: form.systemPrompt || undefined }),
+      body: JSON.stringify({
+        name: form.name,
+        model: form.model,
+        systemPrompt: form.systemPrompt || undefined,
+        project: form.project.trim() || undefined,
+      }),
     });
     setCreating(false);
-    setForm({ id: '', name: '', model: '', systemPrompt: '' });
+    setForm({ id: '', name: '', model: '', systemPrompt: '', project: '' });
     fetchAgents();
   };
 
@@ -178,7 +185,13 @@ export default function AgentsPage() {
     await fetch(`/api/agents/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...agent.entry, name: form.name || agent.entry.name, model: form.model || agent.entry.model, systemPrompt: form.systemPrompt }),
+      body: JSON.stringify({
+        ...agent.entry,
+        name: form.name || agent.entry.name,
+        model: form.model || agent.entry.model,
+        systemPrompt: form.systemPrompt,
+        project: form.project.trim() || undefined,
+      }),
     });
     setEditing(null);
     fetchAgents();
@@ -197,7 +210,13 @@ export default function AgentsPage() {
 
   const startEdit = (agent: AgentEntry) => {
     setEditing(agent.id);
-    setForm({ id: agent.id, name: agent.entry.name, model: agent.entry.model, systemPrompt: agent.entry.systemPrompt || '' });
+    setForm({
+      id: agent.id,
+      name: agent.entry.name,
+      model: agent.entry.model,
+      systemPrompt: agent.entry.systemPrompt || '',
+      project: agent.entry.project || '',
+    });
   };
 
   return (
@@ -206,7 +225,7 @@ export default function AgentsPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">🤖 Agents</h1>
           <button
-            onClick={() => { setCreating(true); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '' }); }}
+            onClick={() => { setCreating(true); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
             className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-2 transition-colors"
           >
             <Plus size={16} /> New Agent
@@ -244,6 +263,17 @@ export default function AgentsPage() {
               onChange={e => setForm(f => ({ ...f, systemPrompt: e.target.value }))}
               className="w-full px-3 py-2 border rounded-lg mb-3 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 text-sm h-20 resize-y"
             />
+            <div className="mb-3">
+              <input
+                placeholder="Project root (optional, absolute path). Enables project-scoped cwd + AGENTS.md injection."
+                value={form.project}
+                onChange={e => setForm(f => ({ ...f, project: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 text-sm font-mono"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Leave empty for a general-purpose agent. When set, the agent works inside the project, reads its AGENTS.md, and shares <code>.berry/</code> data with teammates.
+              </p>
+            </div>
             <div className="flex gap-2">
               <button onClick={handleCreate} className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg text-sm flex items-center gap-1"><Save size={14} /> Create</button>
               <button onClick={() => setCreating(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm flex items-center gap-1"><X size={14} /> Cancel</button>
@@ -285,6 +315,12 @@ export default function AgentsPage() {
                     </select>
                   </div>
                   <textarea value={form.systemPrompt} onChange={e => setForm(f => ({ ...f, systemPrompt: e.target.value }))} className="w-full px-3 py-2 border rounded-lg mb-3 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 text-sm h-20 resize-y" placeholder="System prompt" />
+                  <input
+                    value={form.project}
+                    onChange={e => setForm(f => ({ ...f, project: e.target.value }))}
+                    placeholder="Project root (optional, absolute path)"
+                    className="w-full px-3 py-2 border rounded-lg mb-3 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 text-sm font-mono"
+                  />
                   <div className="flex gap-2">
                     <button onClick={() => handleUpdate(agent.id)} className="px-3 py-1.5 bg-berry-600 text-white rounded-lg text-sm flex items-center gap-1"><Save size={14} /> Save</button>
                     <button onClick={() => setEditing(null)} className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg text-sm"><X size={14} /></button>
@@ -305,8 +341,14 @@ export default function AgentsPage() {
                     <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
                       Model: <span className="font-mono text-xs">{agent.entry.model}</span>
                     </div>
+                    {agent.entry.project && (
+                      <div className="text-xs text-berry-600 dark:text-berry-400 flex items-center gap-1 font-mono" title="Project root (shared workspace)">
+                        <FolderOpen size={12} className="shrink-0" /> {agent.entry.project}
+                        <span className="text-[10px] px-1 py-0.5 bg-berry-100 dark:bg-berry-900/30 rounded ml-1">project</span>
+                      </div>
+                    )}
                     {agent.entry.workspace && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 font-mono">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 font-mono" title="Agent's private workspace (memory, notes, identity)">
                         <FolderOpen size={12} className="shrink-0" /> {agent.entry.workspace}
                       </div>
                     )}

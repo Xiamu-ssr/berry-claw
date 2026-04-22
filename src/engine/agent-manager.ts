@@ -29,7 +29,9 @@ import type {
   ToolUseContent,
   ToolResultContent,
 } from '@berry-agent/core';
-import { compositeGuard, directoryScope, denyList } from '@berry-agent/safe';
+import { compositeGuard, denyList } from '@berry-agent/safe';
+import type { ToolGuard } from '@berry-agent/core';
+import { resolve as resolvePath, relative as relativePath } from 'node:path';
 import { createObserver, calculateCost, type Observer, type ModelPricing } from '@berry-agent/observe';
 import {
   createAllTools,
@@ -115,6 +117,36 @@ function buildTools(
     entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
   );
   return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
+}
+
+/**
+ * ToolGuard that allows path-bearing tool inputs whose target resolves
+ * inside **any** of the given root directories. Mirrors @berry-agent/safe's
+ * single-root directoryScope() but OR-combines multiple roots, which is
+ * needed when an agent is bound to a project: files may live under the
+ * project root or under the agent's own workspace (memory/notes/skills).
+ */
+function buildMultiRootScope(roots: string[]): ToolGuard {
+  const resolvedRoots = roots.map((r) => resolvePath(r));
+  const pathFields = ['path', 'file', 'filename', 'dir', 'directory', 'target'];
+  return async ({ input }) => {
+    for (const field of pathFields) {
+      const value = input[field];
+      if (typeof value !== 'string') continue;
+      // Try each root; allow if any contains the path.
+      const anyMatch = resolvedRoots.some((root) => {
+        const abs = resolvePath(root, value);
+        return !relativePath(root, abs).startsWith('..');
+      });
+      if (!anyMatch) {
+        return {
+          action: 'deny',
+          reason: `Path "${value}" is outside all allowed roots: ${resolvedRoots.join(', ')}`,
+        };
+      }
+    }
+    return { action: 'allow' };
+  };
 }
 
 interface AgentInstance {
@@ -203,17 +235,37 @@ export class AgentManager {
     // and finishes near-instantly. The first search call will hit a warm index.
     memoryProvider.sync().catch(() => {/* best-effort */});
 
+    // If the agent is bound to a project, make the agent's **cwd** the project
+    // root so shell/file tools operate there by default. The agent's private
+    // workspace remains as `workspace` (for memory/skills/identity files).
+    // The SDK's projectContext mechanism (config.project) also prepends
+    // project/AGENTS.md (or PROJECT.md) to the system prompt.
+    const projectRoot = entry.project;
+    if (projectRoot) {
+      if (!existsSync(projectRoot)) mkdirSync(projectRoot, { recursive: true });
+      // Ensure project/.berry/ exists for worklist/team-shared data.
+      const berryDir = join(projectRoot, '.berry');
+      if (!existsSync(berryDir)) mkdirSync(berryDir, { recursive: true });
+    }
+
+    // Directory scoping: allow BOTH project root (work files) AND agent
+    // workspace (private memory/notes). directoryScope() is single-root, so
+    // compose an OR guard that allows paths inside either root.
+    const allowedRoots = projectRoot ? [projectRoot, workspace] : [workspace];
+    const multiRootScope = buildMultiRootScope(allowedRoots);
+
     const agent = new Agent({
       provider: providerInput,
       systemPrompt,
       tools,
-      cwd: workspace,
+      cwd: projectRoot ?? workspace,
       workspace,
+      project: projectRoot,
       memory: memoryProvider,
       skillDirs: entry.skillDirs,
       sessionStore: new FileSessionStore(sessionsDir),
       toolGuard: compositeGuard(
-        directoryScope(workspace),
+        multiRootScope,
         denyList(['rm -rf /', 'rm -rf ~', 'DROP TABLE', 'DROP DATABASE']),
       ),
       middleware: [this.observer.middleware],
@@ -246,6 +298,15 @@ export class AgentManager {
       return;
     }
     if (!cached) return; // not yet initialized; next getAgent() will read fresh
+
+    // 0. Project change forces a rebuild. Project root affects cwd, scope
+    // guard, projectContext (which injects AGENTS.md into system prompt),
+    // and the .berry/ directory — none of which are hot-swappable. Drop the
+    // cached instance so the next getAgent() re-runs initAgent() fresh.
+    if ((entry.project ?? null) !== (cached.entry.project ?? null)) {
+      this.agents.delete(agentId);
+      return;
+    }
 
     // 1. System prompt
     cached.agent.setSystemPrompt(entry.systemPrompt ?? '');

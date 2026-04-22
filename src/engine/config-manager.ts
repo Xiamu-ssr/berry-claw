@@ -39,7 +39,23 @@ export interface AgentEntry {
   systemPrompt?: string;
   /** "tier:strong" | "model:claude-opus-4.7" | "raw:{...}" | bare model id. */
   model: string;
+  /**
+   * Agent's **private** workspace directory. Always exists. Holds the agent's
+   * own memory/*, SOUL.md, daily notes, identity files, etc. Independent of
+   * any project the agent is working on — agents keep their identity when
+   * switching projects.
+   */
   workspace?: string;
+  /**
+   * Optional path to the project root the agent is currently working in.
+   * When set, SDK's projectContext kicks in:
+   *   - project/AGENTS.md (or PROJECT.md) is prepended to system prompt
+   *   - project/.berry/ becomes the shared team/worklist data dir
+   * The agent still has its private `workspace` — project workdir and
+   * workspace coexist. Leave undefined for agents that don't target a project
+   * (e.g. general-purpose chat agents).
+   */
+  project?: string;
   tools?: string[];
   disabledTools?: string[];
   skillDirs?: string[];
