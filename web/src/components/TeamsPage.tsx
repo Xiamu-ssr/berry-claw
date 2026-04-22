@@ -17,7 +17,7 @@
  *     hook; no new WS event types are introduced.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Crown, FolderOpen, RefreshCw, ArrowLeft, MessageSquare } from 'lucide-react';
+import { Users, Plus, Crown, FolderOpen, RefreshCw, ArrowLeft, MessageSquare, Trash2, ListChecks, Loader2, CheckCircle2, XCircle, Circle, CircleDot } from 'lucide-react';
 import { showToast } from './Toast';
 
 interface TeammateRecord {
@@ -54,6 +54,22 @@ interface TeamMessage {
   to: string;
   content: string;
   replyTo?: string;
+}
+
+type WorklistStatus = 'unclaimed' | 'claimed' | 'in_progress' | 'done' | 'failed';
+
+interface WorklistTask {
+  id: string;
+  title: string;
+  description?: string;
+  status: WorklistStatus;
+  assignee?: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  failureReason?: string;
+  tags?: string[];
 }
 
 export default function TeamsPage() {
@@ -297,22 +313,26 @@ function NewTeamModal({
 function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => void }) {
   const [team, setTeam] = useState<TeamState | null>(null);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
+  const [tasks, setTasks] = useState<WorklistTask[]>([]);
   const [leaderName, setLeaderName] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [disbanding, setDisbanding] = useState(false);
 
   const fetchAll = useCallback(async () => {
-    setLoading(true);
     try {
-      const [teamRes, msgsRes, agentsRes] = await Promise.all([
+      const [teamRes, msgsRes, worklistRes, agentsRes] = await Promise.all([
         fetch(`/api/agents/${leaderId}/team`),
         fetch(`/api/agents/${leaderId}/team/messages`),
+        fetch(`/api/agents/${leaderId}/team/worklist`),
         fetch('/api/agents'),
       ]);
       const teamData = await teamRes.json();
       const msgsData = msgsRes.ok ? await msgsRes.json() : { messages: [] };
+      const wlData = worklistRes.ok ? await worklistRes.json() : { tasks: [] };
       const agentsData = await agentsRes.json();
       setTeam(teamData.team);
       setMessages(msgsData.messages || []);
+      setTasks(wlData.tasks || []);
       const leader = (agentsData.agents || []).find((a: AgentSummary) => a.id === leaderId);
       setLeaderName(leader?.entry.name ?? leaderId);
     } finally {
@@ -322,10 +342,52 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
 
   useEffect(() => {
     fetchAll();
-    // Poll for new messages while team detail is open.
-    const iv = setInterval(fetchAll, 5000);
-    return () => clearInterval(iv);
+    // Polling strategy (per lanxuan 2026-04-22): Team panel isn't a realtime
+    // chat UI — it's an audit log + task board. Polling every 15s is plenty
+    // and we also pause when the tab is hidden so we're not burning cycles on
+    // a background tab no one is watching.
+    let iv: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (iv) return;
+      iv = setInterval(fetchAll, 15000);
+    };
+    const stop = () => {
+      if (iv) { clearInterval(iv); iv = null; }
+    };
+    const handleVis = () => {
+      if (document.visibilityState === 'visible') {
+        fetchAll();
+        start();
+      } else {
+        stop();
+      }
+    };
+    start();
+    document.addEventListener('visibilitychange', handleVis);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', handleVis);
+    };
   }, [fetchAll]);
+
+  const handleDisband = async () => {
+    if (!team) return;
+    if (!confirm(`Disband team "${team.name}"? This removes all ${team.teammates.length} teammate(s) and deletes team.json, messages.jsonl, and worklist.json under ${team.project}/.berry/. Session logs are preserved.`)) return;
+    setDisbanding(true);
+    try {
+      const res = await fetch(`/api/agents/${leaderId}/team`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to disband');
+      }
+      showToast({ variant: 'info', title: 'Team disbanded', message: team.name });
+      onBack();
+    } catch (err: any) {
+      showToast({ variant: 'error', title: 'Failed to disband', message: err.message });
+    } finally {
+      setDisbanding(false);
+    }
+  };
 
   const handleChatWithLeader = async () => {
     await fetch(`/api/agents/${leaderId}/activate`, { method: 'POST' });
@@ -380,6 +442,14 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
               <RefreshCw size={14} />
             </button>
             <button
+              onClick={handleDisband}
+              disabled={disbanding}
+              title="Disband team"
+              className="p-2 rounded-lg border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+            >
+              {disbanding ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            </button>
+            <button
               onClick={handleChatWithLeader}
               className="px-3 py-2 text-sm bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-1.5"
             >
@@ -388,7 +458,7 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr_1fr] gap-4">
           {/* Members column */}
           <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">
@@ -417,6 +487,9 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
               </div>
             )}
           </div>
+
+          {/* Worklist column */}
+          <WorklistPanel tasks={tasks} />
 
           {/* Message log column */}
           <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 max-h-[calc(100vh-220px)] overflow-y-auto">
@@ -457,4 +530,113 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
       </div>
     </div>
   );
+}
+
+/**
+ * WorklistPanel — read-only view of <project>/.berry/worklist.json.
+ *
+ * Mutations (create/claim/start/complete/fail) are driven by agents via
+ * the `worklist` tool, not humans here. Human edits would bypass the state
+ * machine and assignee checks; more importantly it breaks the model of
+ * "leader/teammate coordinate through worklist" — humans peek, don't poke.
+ *
+ * If we ever want human override later, it should be a "leader delegates
+ * to me" button that funnels through the agent's turn, not a side-channel
+ * API write.
+ */
+function WorklistPanel({ tasks }: { tasks: WorklistTask[] }) {
+  const grouped: Record<WorklistStatus, WorklistTask[]> = {
+    unclaimed: [],
+    claimed: [],
+    in_progress: [],
+    done: [],
+    failed: [],
+  };
+  for (const t of tasks) grouped[t.status].push(t);
+  const order: WorklistStatus[] = ['unclaimed', 'claimed', 'in_progress', 'done', 'failed'];
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-4 max-h-[calc(100vh-220px)] overflow-y-auto">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+          <ListChecks size={14} /> Worklist · {tasks.length}
+        </h3>
+      </div>
+      {tasks.length === 0 ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+          No tasks yet. Ask the leader to <span className="font-mono">worklist(action=&quot;create&quot;, title=&quot;…&quot;)</span> from chat.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {order.map((status) =>
+            grouped[status].length === 0 ? null : (
+              <div key={status}>
+                <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5 flex items-center gap-1">
+                  <StatusIcon status={status} /> {status.replace('_', ' ')} · {grouped[status].length}
+                </div>
+                <div className="space-y-1.5">
+                  {grouped[status].map((t) => (
+                    <div
+                      key={t.id}
+                      className={`rounded-lg p-2.5 text-sm border ${
+                        status === 'done'
+                          ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800'
+                          : status === 'failed'
+                          ? 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-800'
+                          : status === 'in_progress'
+                          ? 'bg-sky-50 dark:bg-sky-900/10 border-sky-200 dark:border-sky-800'
+                          : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium text-gray-900 dark:text-gray-100 break-words">{t.title}</span>
+                        <span className="text-[10px] font-mono text-gray-400 shrink-0">{t.id}</span>
+                      </div>
+                      {t.description && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1 whitespace-pre-wrap break-words">
+                          {t.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+                        {t.assignee ? <span>@{t.assignee}</span> : <span className="italic">unassigned</span>}
+                        <span>·</span>
+                        <span>by {t.createdBy}</span>
+                        {t.tags && t.tags.length > 0 && (
+                          <>
+                            <span>·</span>
+                            <span className="flex gap-1">
+                              {t.tags.map((tag) => (
+                                <span key={tag} className="px-1 bg-gray-100 dark:bg-gray-700 rounded">
+                                  {tag}
+                                </span>
+                              ))}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {status === 'failed' && t.failureReason && (
+                        <div className="mt-1 text-xs text-rose-700 dark:text-rose-300">
+                          ✗ {t.failureReason}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusIcon({ status }: { status: WorklistStatus }) {
+  switch (status) {
+    case 'unclaimed': return <Circle size={10} />;
+    case 'claimed':   return <CircleDot size={10} />;
+    case 'in_progress': return <Loader2 size={10} className="animate-spin" />;
+    case 'done':      return <CheckCircle2 size={10} />;
+    case 'failed':    return <XCircle size={10} />;
+  }
 }

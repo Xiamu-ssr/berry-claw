@@ -193,6 +193,16 @@ describe('Team API', () => {
     const res = await fetch(`${BASE}/api/agents/nonexistent/team/messages`);
     expect(res.status).toBe(404);
   });
+
+  it('GET /api/agents/:id/team/worklist 404s when no team exists', async () => {
+    const res = await fetch(`${BASE}/api/agents/nonexistent/team/worklist`);
+    expect(res.status).toBe(404);
+  });
+
+  it('DELETE /api/agents/:id/team 400s when no team exists', async () => {
+    const res = await fetch(`${BASE}/api/agents/nonexistent/team`, { method: 'DELETE' });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('Observe API', () => {

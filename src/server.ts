@@ -315,7 +315,24 @@ export function startServer(port: number) {
    * leader agent hasn't been initialized this process) won't show here —
    * we only list teams whose leader is live in AgentManager.
    */
-  app.get('/api/teams', (_req, res) => {
+  app.get('/api/teams', async (_req, res) => {
+    // Force-init any project-bound agent that isn't live yet. This is the
+    // only point where we proactively wake agents — without it the Teams
+    // tab would show "no teams" on a fresh server boot until the user hits
+    // chat, because agent instances (and thus team rehydration) are lazy.
+    // Cost: one extra init per project-bound agent on first Teams load.
+    for (const { id, entry } of manager.config.listAgents()) {
+      if (entry.project && !manager.isAgentLive(id)) {
+        try { manager.getAgent(id); } catch { /* ignore per-agent init failures */ }
+      }
+    }
+    // Wait for any in-flight rehydrates to settle. This is the reliable
+    // way — setImmediate-polling was flaky because the rehydrate promise
+    // includes a readFile + per-teammate agent.spawn.
+    await Promise.all(
+      manager.config.listAgents().map(({ id }) => manager.waitForTeamRehydrate(id)),
+    );
+
     const teams: Array<{ leaderId: string; leaderName: string; state: any }> = [];
     for (const { id, entry } of manager.config.listAgents()) {
       const team = manager.getTeam(id);
@@ -336,18 +353,56 @@ export function startServer(port: number) {
     }
   });
 
+  /**
+   * Helper: ensure the leader agent is initialized + its team (if any) is
+   * rehydrated from disk. Returns the team, or null if the agent has no
+   * project / no team.json. Centralizes the cold-boot lazy-init dance so
+   * every team-read endpoint doesn't have to repeat it.
+   */
+  async function resolveTeam(agentId: string) {
+    const entry = manager.config.getAgent(agentId);
+    if (!entry?.project) return null;
+    if (!manager.isAgentLive(agentId)) {
+      try { manager.getAgent(agentId); } catch { return null; }
+    }
+    await manager.waitForTeamRehydrate(agentId);
+    return manager.getTeam(agentId) ?? null;
+  }
+
   /** Current team snapshot (null if none). */
-  app.get('/api/agents/:id/team', (req, res) => {
-    const team = manager.getTeam(req.params.id);
+  app.get('/api/agents/:id/team', async (req, res) => {
+    const team = await resolveTeam(req.params.id);
     res.json({ team: team?.state ?? null });
   });
 
   /** Team message log (append-only JSONL read back). */
   app.get('/api/agents/:id/team/messages', async (req, res) => {
-    const team = manager.getTeam(req.params.id);
+    const team = await resolveTeam(req.params.id);
     if (!team) return res.status(404).json({ error: 'No team for this agent' });
     const messages = await team.readMessages();
     res.json({ messages });
+  });
+
+  /** Disband the team (delete team.json + disband all teammates). */
+  app.delete('/api/agents/:id/team', async (req, res) => {
+    try {
+      // resolveTeam handles cold-boot lazy init — without it, a fresh
+      // server that hasn't yet touched the leader agent would 400 here.
+      const team = await resolveTeam(req.params.id);
+      if (!team) return res.status(400).json({ error: 'No team for this agent' });
+      await manager.disbandTeam(req.params.id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /** Worklist snapshot (read-only; mutations go through the agent's `worklist` tool). */
+  app.get('/api/agents/:id/team/worklist', async (req, res) => {
+    const team = await resolveTeam(req.params.id);
+    if (!team) return res.status(404).json({ error: 'No team for this agent' });
+    const tasks = await team.worklist.list();
+    res.json({ tasks });
   });
 
   /** Inspect agent (system prompt, tools, skills, provider) */

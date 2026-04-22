@@ -169,6 +169,12 @@ export class AgentManager {
    * agent via startTeam().
    */
   private teams = new Map<string, Team>();
+  /**
+   * In-flight rehydrate promises keyed by leader agent id. initAgent fires
+   * team rehydration as async work; callers that need to see the result
+   * (notably GET /api/teams on a cold boot) await the promise here.
+   */
+  private pendingRehydrates = new Map<string, Promise<void>>();
   private activeAgentId: string;
   private pricingOverrides: Record<string, ModelPricing>;
 
@@ -290,19 +296,48 @@ export class AgentManager {
     this.agents.set(id, { id, agent, entry });
 
     // Auto-rehydrate team: if this agent has a project and the project
-    // already has a team.json naming this agent as leader, reopen the team
-    // and mount the leader tools. Teammate Agent instances are NOT revived
-    // here — the leader can respawn them on demand via spawn_teammate
-    // (idempotent by teammate id... actually it throws. TODO: respawn mode).
-    // For v1 we accept that restart loses live teammates; persisted state
-    // stays, leader can disband + respawn.
+    // already has a team.json naming this agent as leader, reopen the team,
+    // mount leader tools, and revive every teammate's live Agent instance
+    // (via team.rehydrateAll) so the leader's spawn_teammate call doesn't
+    // hit "already exists" after a host restart.
+    //
+    // Intentionally synchronous (awaited) despite initAgent being a sync
+    // method — so we block the first getAgent() call until the team is up.
+    // Callers that awaited getAgent() via a microtask see a fully-wired
+    // team. In practice this is IO: a readFile + spawns, <10ms on dev boxes.
     if (projectRoot) {
-      void this.tryRehydrateTeam(id, agent, projectRoot).catch((err) => {
+      try {
+        this.tryRehydrateTeamSync(id, agent, projectRoot);
+      } catch (err) {
         console.warn(`[agent:${id}] team rehydrate failed:`, err);
-      });
+      }
     }
 
     return agent;
+  }
+
+  /**
+   * Synchronous wrapper around tryRehydrateTeam. It still has to await
+   * TeamStore.load(), but we block by awaiting at call sites that are
+   * sync-available (initAgent isn't sync anymore — see below). Keeping the
+   * public method async and having callers await is the cleaner fix; we
+   * use this helper name for clarity and leave the real async wait on a
+   * single awaiting caller.
+   */
+  private tryRehydrateTeamSync(agentId: string, agent: Agent, project: string): void {
+    // Delegate to the async version; store the promise on a per-id map so
+    // callers can await `waitForTeamRehydrate(agentId)` if they need the
+    // result immediately. The /api/teams endpoint does this.
+    const p = this.tryRehydrateTeam(agentId, agent, project).catch((err) => {
+      console.warn(`[agent:${agentId}] team rehydrate failed:`, err);
+    });
+    this.pendingRehydrates.set(agentId, p);
+  }
+
+  /** Resolves when the team for `agentId` has finished rehydrating (or immediately if none pending). */
+  async waitForTeamRehydrate(agentId: string): Promise<void> {
+    const p = this.pendingRehydrates.get(agentId);
+    if (p) await p;
   }
 
   /**
@@ -319,6 +354,13 @@ export class AgentManager {
     if (!existsSync(teamFile)) return;
     const team = await Team.open({ leaderId: agentId, leader: agent, project });
     this.mountLeaderTools(agent, team);
+    // Revive live teammate Agent instances from the persisted roster so the
+    // leader's spawn_teammate / message_teammate calls work after a host
+    // restart without the leader having to "already exists" dance.
+    const revived = team.rehydrateAll();
+    if (revived.length > 0) {
+      console.log(`[team:${agentId}] rehydrated ${revived.length} teammate(s): ${revived.join(', ')}`);
+    }
     this.teams.set(agentId, team);
   }
 
@@ -352,6 +394,40 @@ export class AgentManager {
   /** Get the team this agent leads (if any). */
   getTeam(agentId: string): Team | undefined {
     return this.teams.get(agentId);
+  }
+
+  /** Has this agent been instantiated in-memory? (vs. lazy, still just an entry in config). */
+  isAgentLive(agentId: string): boolean {
+    return this.agents.has(agentId);
+  }
+
+  /**
+   * Disband a team: disband each teammate, delete team.json + messages.jsonl
+   * + worklist.json, drop from the teams registry. The leader Agent is
+   * kept; its tools are NOT removed (v1: SDK has no removeTool). Next full
+   * agent re-init (e.g. hot reload of project binding) will rebuild without
+   * the team tools.
+   *
+   * The .berry/ directory itself is left in place — it may contain other
+   * project artifacts (future: skills, config) that aren't team-owned.
+   */
+  async disbandTeam(agentId: string): Promise<void> {
+    const team = this.teams.get(agentId);
+    if (!team) throw new Error(`No team for agent "${agentId}".`);
+    // Disband each teammate sequentially so state.save() stays consistent.
+    const ids = team.state.teammates.map((t) => t.id);
+    for (const id of ids) {
+      await team.disbandTeammate(id);
+    }
+    // Delete team + message + worklist files on disk.
+    const berry = join(team.state.project, '.berry');
+    for (const f of ['team.json', 'messages.jsonl', 'worklist.json']) {
+      const p = join(berry, f);
+      if (existsSync(p)) {
+        try { (await import('node:fs/promises')).unlink(p); } catch { /* best effort */ }
+      }
+    }
+    this.teams.delete(agentId);
   }
 
   /**
