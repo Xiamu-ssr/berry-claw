@@ -5,6 +5,7 @@ import TodoPanel from './components/TodoPanel';
 import ObserveDashboard from './components/ObserveDashboard';
 import SettingsPage from './components/SettingsPage';
 import AgentsPage from './components/AgentsPage';
+import TeamsPage from './components/TeamsPage';
 import ToastContainer, { useToast } from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { AgentStatus, ChatMessage, SessionInfo, ToolCallInfo, TodoItem, WsIncoming } from './types';
@@ -17,7 +18,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>();
-  const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'settings'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'team' | 'settings'>('chat');
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
   const [agentStatusDetail, setAgentStatusDetail] = useState<string | undefined>(undefined);
   const [todos, setTodos] = useState<TodoItem[]>([]);
@@ -34,6 +35,20 @@ export default function App() {
   // Fetch sessions on mount
   useEffect(() => {
     fetchSessions();
+  }, []);
+
+  // Cross-component tab switch: TeamsPage uses this to jump into Chat
+  // after activating the leader agent. Using a window CustomEvent keeps
+  // App's API surface small (no need to prop-drill setActiveTab).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail === 'chat' || detail === 'observe' || detail === 'agents' || detail === 'team' || detail === 'settings') {
+        setActiveTab(detail);
+      }
+    };
+    window.addEventListener('berry:switch-tab', handler);
+    return () => window.removeEventListener('berry:switch-tab', handler);
   }, []);
 
   const fetchSessions = async () => {
@@ -279,6 +294,8 @@ export default function App() {
         {activeTab === 'observe' && <ObserveDashboard />}
 
         {activeTab === 'agents' && <AgentsPage />}
+
+        {activeTab === 'team' && <TeamsPage />}
 
         {activeTab === 'settings' && <SettingsPage />}
       </div>

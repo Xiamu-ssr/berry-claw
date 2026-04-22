@@ -307,22 +307,19 @@ export class AgentManager {
 
   /**
    * Attempt to reopen an existing team for this agent on startup. A no-op
-   * when no team.json exists yet. Mounts leader tools on success.
+   * when no <project>/.berry/team.json exists yet. Mounts leader tools on
+   * success. Implementation detail: we check for the file directly instead
+   * of calling Team.open() (which would auto-create), because auto-creating
+   * a team for every project-bound agent would silently turn everyone into
+   * a solo leader.
    */
   private async tryRehydrateTeam(agentId: string, agent: Agent, project: string): Promise<void> {
     if (this.teams.has(agentId)) return;
+    const teamFile = join(project, '.berry', 'team.json');
+    if (!existsSync(teamFile)) return;
     const team = await Team.open({ leaderId: agentId, leader: agent, project });
-    // open() always returns a Team (creates if missing). We only want to
-    // mount tools when the team actually has meaning — otherwise every
-    // project-bound agent would silently become a "team of one".
-    // Heuristic: mount if the team.json already existed (teammates present,
-    // or explicitly started earlier). Here we detect via teammates count,
-    // but a fresh team with zero teammates is also valid after explicit
-    // startTeam(), so we also track startTeam intent separately.
-    if (team.state.teammates.length > 0) {
-      this.mountLeaderTools(agent, team);
-      this.teams.set(agentId, team);
-    }
+    this.mountLeaderTools(agent, team);
+    this.teams.set(agentId, team);
   }
 
   private mountLeaderTools(agent: Agent, team: Team): void {

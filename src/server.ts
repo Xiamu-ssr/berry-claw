@@ -308,6 +308,24 @@ export function startServer(port: number) {
   // A team is always keyed by its leader agent id. An agent can lead at
   // most one team at a time (tracked inside AgentManager.teams).
 
+  /**
+   * Global list of all currently-loaded teams. Each entry gives enough for
+   * a TeamsPage card: leader id/name, project, teammate count, team name.
+   * Teams that have been created on disk but not yet rehydrated (their
+   * leader agent hasn't been initialized this process) won't show here —
+   * we only list teams whose leader is live in AgentManager.
+   */
+  app.get('/api/teams', (_req, res) => {
+    const teams: Array<{ leaderId: string; leaderName: string; state: any }> = [];
+    for (const { id, entry } of manager.config.listAgents()) {
+      const team = manager.getTeam(id);
+      if (team) {
+        teams.push({ leaderId: id, leaderName: entry.name, state: team.state });
+      }
+    }
+    res.json({ teams });
+  });
+
   /** Start (or fetch) the team led by this agent. Requires agent.project. */
   app.post('/api/agents/:id/team/start', async (req, res) => {
     try {
