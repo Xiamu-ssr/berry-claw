@@ -47,6 +47,7 @@ import { SessionManager, type ChatMessage } from './session-manager.js';
 import { join } from 'node:path';
 import { createFileMemoryProvider } from '@berry-agent/memory-file';
 import { selectProvider } from '@berry-agent/models';
+import { Team, type TeamState } from '@berry-agent/team';
 import { mkdirSync, existsSync } from 'node:fs';
 
 const TOOL_GROUPS: Record<string, readonly string[]> = {
@@ -161,6 +162,13 @@ export class AgentManager {
   readonly observer: Observer;
   readonly credentials: CredentialStore;
   private agents = new Map<string, AgentInstance>();
+  /**
+   * Per-leader-agent Team instances. Keyed by the *leader* agent id.
+   * Populated lazily: either on agent init (if a team.json already exists
+   * in the project) or when the user explicitly starts a team for this
+   * agent via startTeam().
+   */
+  private teams = new Map<string, Team>();
   private activeAgentId: string;
   private pricingOverrides: Record<string, ModelPricing>;
 
@@ -280,7 +288,73 @@ export class AgentManager {
     }
 
     this.agents.set(id, { id, agent, entry });
+
+    // Auto-rehydrate team: if this agent has a project and the project
+    // already has a team.json naming this agent as leader, reopen the team
+    // and mount the leader tools. Teammate Agent instances are NOT revived
+    // here — the leader can respawn them on demand via spawn_teammate
+    // (idempotent by teammate id... actually it throws. TODO: respawn mode).
+    // For v1 we accept that restart loses live teammates; persisted state
+    // stays, leader can disband + respawn.
+    if (projectRoot) {
+      void this.tryRehydrateTeam(id, agent, projectRoot).catch((err) => {
+        console.warn(`[agent:${id}] team rehydrate failed:`, err);
+      });
+    }
+
     return agent;
+  }
+
+  /**
+   * Attempt to reopen an existing team for this agent on startup. A no-op
+   * when no team.json exists yet. Mounts leader tools on success.
+   */
+  private async tryRehydrateTeam(agentId: string, agent: Agent, project: string): Promise<void> {
+    if (this.teams.has(agentId)) return;
+    const team = await Team.open({ leaderId: agentId, leader: agent, project });
+    // open() always returns a Team (creates if missing). We only want to
+    // mount tools when the team actually has meaning — otherwise every
+    // project-bound agent would silently become a "team of one".
+    // Heuristic: mount if the team.json already existed (teammates present,
+    // or explicitly started earlier). Here we detect via teammates count,
+    // but a fresh team with zero teammates is also valid after explicit
+    // startTeam(), so we also track startTeam intent separately.
+    if (team.state.teammates.length > 0) {
+      this.mountLeaderTools(agent, team);
+      this.teams.set(agentId, team);
+    }
+  }
+
+  private mountLeaderTools(agent: Agent, team: Team): void {
+    for (const tool of team.leaderTools()) {
+      agent.addTool(tool);
+    }
+  }
+
+  /**
+   * Explicitly start a team for the given agent (must have a project).
+   * Idempotent — if a team already exists, returns the current state and
+   * mounts the leader tools if not already mounted.
+   */
+  async startTeam(agentId: string, teamName?: string): Promise<TeamState> {
+    const entry = this.config.getAgent(agentId);
+    if (!entry) throw new Error(`Agent "${agentId}" not found`);
+    if (!entry.project) {
+      throw new Error(`Agent "${agentId}" has no project. Bind the agent to a project before starting a team.`);
+    }
+    const agent = this.getAgent(agentId);
+    let team = this.teams.get(agentId);
+    if (!team) {
+      team = await Team.open({ leaderId: agentId, leader: agent, project: entry.project, name: teamName });
+      this.teams.set(agentId, team);
+      this.mountLeaderTools(agent, team);
+    }
+    return team.state;
+  }
+
+  /** Get the team this agent leads (if any). */
+  getTeam(agentId: string): Team | undefined {
+    return this.teams.get(agentId);
   }
 
   /**

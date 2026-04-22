@@ -164,6 +164,37 @@ describe('Session API', () => {
   });
 });
 
+describe('Team API', () => {
+  it('GET /api/agents/:id/team returns null when no team exists', async () => {
+    const res = await fetch(`${BASE}/api/agents/nonexistent/team`);
+    expect(res.ok).toBe(true);
+    const data = await res.json();
+    expect(data.team).toBeNull();
+  });
+
+  it('POST /api/agents/:id/team/start 400s for agent without project', async () => {
+    // Create an agent without a project binding
+    await fetch(`${BASE}/api/agents/no-project-leader`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'No Project', model: 'some-model' }),
+    });
+    const res = await fetch(`${BASE}/api/agents/no-project-leader/team/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/no project/i);
+  });
+
+  it('GET /api/agents/:id/team/messages 404s when no team exists', async () => {
+    const res = await fetch(`${BASE}/api/agents/nonexistent/team/messages`);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('Observe API', () => {
   it('GET /api/observe/cost returns cost data', async () => {
     const res = await fetch(`${BASE}/api/observe/cost`);

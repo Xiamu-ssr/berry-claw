@@ -302,6 +302,36 @@ export function startServer(port: number) {
     }
   });
 
+  // ----------------------------
+  // Team API (leader-scoped)
+  // ----------------------------
+  // A team is always keyed by its leader agent id. An agent can lead at
+  // most one team at a time (tracked inside AgentManager.teams).
+
+  /** Start (or fetch) the team led by this agent. Requires agent.project. */
+  app.post('/api/agents/:id/team/start', async (req, res) => {
+    try {
+      const state = await manager.startTeam(req.params.id, req.body?.name);
+      res.json({ ok: true, team: state });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /** Current team snapshot (null if none). */
+  app.get('/api/agents/:id/team', (req, res) => {
+    const team = manager.getTeam(req.params.id);
+    res.json({ team: team?.state ?? null });
+  });
+
+  /** Team message log (append-only JSONL read back). */
+  app.get('/api/agents/:id/team/messages', async (req, res) => {
+    const team = manager.getTeam(req.params.id);
+    if (!team) return res.status(404).json({ error: 'No team for this agent' });
+    const messages = await team.readMessages();
+    res.json({ messages });
+  });
+
   /** Inspect agent (system prompt, tools, skills, provider) */
   app.get('/api/agents/:id/inspect', (req, res) => {
     try {

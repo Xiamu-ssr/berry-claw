@@ -31,6 +31,7 @@
     "@berry-agent/core": "file:../berry-agent-sdk/packages/core",
     "@berry-agent/memory-file": "file:../berry-agent-sdk/packages/memory-file",
     "@berry-agent/models": "file:../berry-agent-sdk/packages/models",
+    "@berry-agent/team": "file:../berry-agent-sdk/packages/team",
     "@berry-agent/observe": "file:../berry-agent-sdk/packages/observe",
     "@berry-agent/safe": "file:../berry-agent-sdk/packages/safe",
     "@berry-agent/tools-common": "file:../berry-agent-sdk/packages/tools-common",
