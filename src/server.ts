@@ -428,10 +428,22 @@ export function startServer(port: number) {
   // Session API
   // ============================
 
-  /** List sessions (hydrate from persisted SDK session store on restart) */
+  /** List sessions — 1 agent 1 session: returns at most the current agent's active session. */
   app.get('/api/sessions', async (_req, res) => {
-    const sessions = await manager.listSessionStates();
-    res.json({ sessions });
+    const sessionId = manager.sessions.currentSessionId;
+    if (!sessionId) {
+      return res.json({ sessions: [] });
+    }
+    const state = manager.sessions.getState(sessionId);
+    if (state) {
+      return res.json({ sessions: [state] });
+    }
+    // Try to hydrate from agent store
+    try {
+      const hydrated = await manager.loadSessionState(sessionId);
+      if (hydrated) return res.json({ sessions: [hydrated] });
+    } catch { /* ignore */ }
+    return res.json({ sessions: [] });
   });
 
   /** Get session detail + messages */
@@ -483,10 +495,26 @@ export function startServer(port: number) {
           case 'chat':
             await handleChat(ws, manager, msg.prompt, msg.sessionId);
             break;
-          case 'new_session':
-            manager.sessions.newSession();
-            ws.send(JSON.stringify({ type: 'session_cleared' }));
+      case 'new_session': {
+        try {
+          const agent = manager.getAgent();
+          const sessionId = manager.sessions.currentSessionId;
+          if (!sessionId) {
+            ws.send(JSON.stringify({ type: 'error', message: 'No active session to compact.' }));
             break;
+          }
+          const result = await agent.compactSession(sessionId, { reason: 'user_request' });
+          ws.send(JSON.stringify({
+            type: 'session_compacted',
+            sessionId,
+            tokensFreed: result.tokensFreed,
+            layersApplied: result.layersApplied,
+          }));
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: 'error', message: err.message }));
+        }
+        break;
+      }
           case 'resume_session': {
             const hydrated = await manager.loadSessionState(msg.sessionId);
             const state = hydrated ?? manager.sessions.switchSession(msg.sessionId);

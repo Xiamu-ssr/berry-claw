@@ -1,34 +1,22 @@
 import { useState } from 'react';
-import { Plus, MessageSquare, BarChart3, Settings, Menu, X, Bot, Users } from 'lucide-react';
+import { MessageSquare, BarChart3, Settings, Menu, X, Bot, Users, RefreshCw } from 'lucide-react';
 import AgentSelector from './AgentSelector';
-import type { SessionInfo } from '../types';
 
 interface SidebarProps {
-  sessions: SessionInfo[];
-  activeSessionId?: string;
   activeTab: 'chat' | 'observe' | 'agents' | 'team' | 'settings';
-  onNewSession: () => void;
-  onSelectSession: (id: string) => void;
+  onCompact: () => void;
   onTabChange: (tab: 'chat' | 'observe' | 'agents' | 'team' | 'settings') => void;
 }
 
 export default function Sidebar({
-  sessions,
-  activeSessionId,
   activeTab,
-  onNewSession,
-  onSelectSession,
+  onCompact,
   onTabChange,
 }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleTabChange = (tab: 'chat' | 'observe' | 'agents' | 'team' | 'settings') => {
     onTabChange(tab);
-    setMobileOpen(false);
-  };
-
-  const handleSelectSession = (id: string) => {
-    onSelectSession(id);
     setMobileOpen(false);
   };
 
@@ -90,7 +78,7 @@ export default function Sidebar({
           />
         </div>
 
-        {/* Session list — only show on chat tab */}
+        {/* Panel — only on chat tab */}
         {activeTab === 'chat' && (
           <div className="w-56 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
             {/* Mobile close button */}
@@ -101,43 +89,13 @@ export default function Sidebar({
             </div>
             <AgentSelector />
             <button
-              onClick={() => { onNewSession(); setMobileOpen(false); }}
-              className="mx-3 mb-3 px-4 py-2.5 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              onClick={() => { onCompact(); setMobileOpen(false); }}
+              className="mx-3 mb-3 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center justify-center gap-2 font-medium transition-colors"
+              title="Compact session — collapse old messages into a summary (like /new)"
             >
-              <Plus size={18} />
-              New Session
+              <RefreshCw size={18} />
+              Compact
             </button>
-
-            <div className="flex-1 overflow-y-auto px-2 pb-2">
-              {sessions.map((session) => (
-                <button
-                  key={session.id}
-                  onClick={() => handleSelectSession(session.id)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg mb-1 transition-colors ${
-                    activeSessionId === session.id
-                      ? 'bg-berry-100 dark:bg-berry-900/40 text-berry-800 dark:text-berry-200'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium truncate flex-1">
-                      {session.title || session.id.slice(0, 16) + '...'}
-                    </span>
-                    {session.totalCost != null && (
-                      <span className="text-xs text-gray-400 ml-2">
-                        ${session.totalCost.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-0.5">
-                    {new Date(session.startTime ?? session.createdAt ?? Date.now()).toLocaleDateString()}
-                  </div>
-                </button>
-              ))}
-              {sessions.length === 0 && (
-                <p className="text-sm text-gray-400 text-center mt-8">No sessions yet</p>
-              )}
-            </div>
           </div>
         )}
       </div>

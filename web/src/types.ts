@@ -106,4 +106,5 @@ export type WsIncoming =
   | { type: 'error'; message: string }
   | { type: 'session_cleared' }
   | { type: 'session_resumed'; sessionId: string; messages?: ChatMessage[] }
+  | { type: 'session_compacted'; sessionId: string; tokensFreed: number; layersApplied: string[] }
   | { type: 'interject_acked'; text: string };

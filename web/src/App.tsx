@@ -8,7 +8,7 @@ import AgentsPage from './components/AgentsPage';
 import TeamsPage from './components/TeamsPage';
 import ToastContainer, { useToast } from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
-import type { AgentStatus, ChatMessage, SessionInfo, ToolCallInfo, TodoItem, WsIncoming } from './types';
+import type { AgentStatus, ChatMessage, ToolCallInfo, TodoItem, WsIncoming } from './types';
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -16,7 +16,6 @@ export default function App() {
   const [thinkingText, setThinkingText] = useState('');
   const [pendingTools, setPendingTools] = useState<ToolCallInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>();
   const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'team' | 'settings'>('chat');
   const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
@@ -32,9 +31,9 @@ export default function App() {
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
-  // Fetch sessions on mount
+  // Fetch active session on mount
   useEffect(() => {
-    fetchSessions();
+    fetchActiveSession();
   }, []);
 
   // Cross-component tab switch: TeamsPage uses this to jump into Chat
@@ -51,11 +50,14 @@ export default function App() {
     return () => window.removeEventListener('berry:switch-tab', handler);
   }, []);
 
-  const fetchSessions = async () => {
+  const fetchActiveSession = async () => {
     try {
       const res = await fetch('/api/sessions');
       const data = await res.json();
-      setSessions(data.sessions || []);
+      const list = data.sessions || [];
+      if (list.length > 0) {
+        setActiveSessionId(list[0].id);
+      }
     } catch {
       // Server not ready yet
     }
@@ -146,7 +148,7 @@ export default function App() {
         setActiveSessionId(msg.sessionId);
         pendingToolsRef.current = [];
         thinkingTextRef.current = '';
-        fetchSessions();
+        fetchActiveSession();
         break;
       }
 
@@ -190,6 +192,16 @@ export default function App() {
         }
         break;
 
+      case 'session_compacted':
+        toastRef.current.show({
+          variant: 'info',
+          title: 'Session compacted',
+          message: `Freed ${msg.tokensFreed ?? 0} tokens. Layers: ${(msg.layersApplied ?? []).join(', ') || 'none'}.`,
+          durationMs: 4000,
+        });
+        setMessages([]);
+        break;
+
       case 'interject_acked':
         // Surface as a subtle system note in the chat log
         setMessages((prev) => [
@@ -215,7 +227,6 @@ export default function App() {
 
   const handleSend = useCallback(
     (prompt: string) => {
-      // Add user message
       setMessages((prev) => [
         ...prev,
         {
@@ -225,38 +236,22 @@ export default function App() {
           timestamp: Date.now(),
         },
       ]);
-      // Send to server
       send({ type: 'chat', prompt, sessionId: activeSessionId });
     },
     [send, activeSessionId],
   );
 
-  const handleNewSession = useCallback(() => {
+  const handleCompact = useCallback(() => {
     send({ type: 'new_session' });
-    setMessages([]);
-    setActiveSessionId(undefined);
   }, [send]);
-
-  const handleSelectSession = useCallback(
-    (id: string) => {
-      send({ type: 'resume_session', sessionId: id });
-      setMessages([]); // Will be populated by session_resumed response
-      setActiveSessionId(id);
-      setActiveTab('chat');
-    },
-    [send],
-  );
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900">
       <ToastContainer />
       {/* Sidebar */}
       <Sidebar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
         activeTab={activeTab}
-        onNewSession={handleNewSession}
-        onSelectSession={handleSelectSession}
+        onCompact={handleCompact}
         onTabChange={setActiveTab}
       />
 
