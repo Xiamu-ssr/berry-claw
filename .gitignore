@@ -1,5 +1,6 @@
 node_modules/
 dist/
 .berry-claw/
+.berry/
 .env
 .env.local

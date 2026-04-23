@@ -235,10 +235,22 @@ export class AgentManager {
     const sessionsDir = join(this.config.appDir, 'sessions', id);
     if (!existsSync(sessionsDir)) mkdirSync(sessionsDir, { recursive: true });
 
-    // Build system prompt
+    // Resolve project root early so it is available for system prompt injection.
+    const projectRoot = entry.project;
+    if (projectRoot) {
+      if (!existsSync(projectRoot)) mkdirSync(projectRoot, { recursive: true });
+      // Ensure project/.berry/ exists for worklist/team-shared data.
+      const berryDir = join(projectRoot, '.berry');
+      if (!existsSync(berryDir)) mkdirSync(berryDir, { recursive: true });
+    }
+
+    // Build system prompt — inject environment context so the agent knows
+    // its own workspace and project bindings. This is the single source of
+    // truth for "where am I operating?" introspection.
+    const envContext = buildEnvContext(workspace, projectRoot);
     const systemPrompt = entry.systemPrompt
-      ? [entry.systemPrompt]
-      : SYSTEM_PROMPT;
+      ? [envContext, entry.systemPrompt]
+      : [envContext, ...SYSTEM_PROMPT];
 
     // Build tools based on config
     const tools = buildTools(workspace, entry, this.credentials);
@@ -248,19 +260,6 @@ export class AgentManager {
     // sync() builds the FTS index; fire-and-forget is fine — it uses sync IO internally
     // and finishes near-instantly. The first search call will hit a warm index.
     memoryProvider.sync().catch(() => {/* best-effort */});
-
-    // If the agent is bound to a project, make the agent's **cwd** the project
-    // root so shell/file tools operate there by default. The agent's private
-    // workspace remains as `workspace` (for memory/skills/identity files).
-    // The SDK's projectContext mechanism (config.project) also prepends
-    // project/AGENTS.md (or PROJECT.md) to the system prompt.
-    const projectRoot = entry.project;
-    if (projectRoot) {
-      if (!existsSync(projectRoot)) mkdirSync(projectRoot, { recursive: true });
-      // Ensure project/.berry/ exists for worklist/team-shared data.
-      const berryDir = join(projectRoot, '.berry');
-      if (!existsSync(berryDir)) mkdirSync(berryDir, { recursive: true });
-    }
 
     // Directory scoping: allow BOTH project root (work files) AND agent
     // workspace (private memory/notes). directoryScope() is single-root, so
@@ -765,6 +764,29 @@ export class AgentManager {
  * Agent instance; chooses the binding's first provider and returns null
  * when the spec can't be resolved.
  */
+/**
+ * Build a concise environment-context block that tells the agent where it
+ * is operating. This is prepended to the system prompt so the model knows
+ * its workspace and project roots without relying on tool calls.
+ *
+ * The guard already enforces these roots; making them visible to the model
+ * reduces "I don't know my project" confusion and "file_list denied" surprise.
+ */
+function buildEnvContext(workspace: string, projectRoot?: string): string {
+  const lines = [
+    `<env>`,
+    `  workspace: ${workspace}`,
+  ];
+  if (projectRoot) {
+    lines.push(`  project: ${projectRoot}`);
+    lines.push(`  cwd: ${projectRoot}`);
+  } else {
+    lines.push(`  cwd: ${workspace}`);
+  }
+  lines.push(`</env>`);
+  return lines.join('\n');
+}
+
 function resolveStaticProviderConfig(
   spec: string,
   config: ConfigManager,
