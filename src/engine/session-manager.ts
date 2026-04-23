@@ -2,7 +2,8 @@
  * Session Manager — session CRUD + 消息历史
  * 后端持有所有 session 状态，前端只是展示层
  */
-import type { Agent, Session, AgentEvent, QueryResult } from '@berry-agent/core';
+// (previously imported Agent/Session/AgentEvent/QueryResult — none used;
+//  session state is passed in as plain structural objects.)
 
 export interface InferenceInfo {
   /** Model id used for this inference round */

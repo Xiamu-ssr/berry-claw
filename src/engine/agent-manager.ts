@@ -423,7 +423,7 @@ export class AgentManager {
    * availableTiers) for a given leader + project. Factored out because
    * both startTeam and tryRehydrateTeam need the same set.
    */
-  private teamHooks(leaderId: string, project: string) {
+  private teamHooks(leaderId: string, _project: string) {
     return {
       agentFactory: async (spec: Parameters<NonNullable<Parameters<typeof Team.open>[0]['agentFactory']>>[0]) => {
         return this.createTeammateAgent(spec);
