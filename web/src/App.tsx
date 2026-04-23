@@ -9,6 +9,7 @@ import TeamsPage from './components/TeamsPage';
 import ToastContainer, { useToast } from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { AgentStatus, ChatMessage, ToolCallInfo, TodoItem, WsIncoming } from './types';
+import { API } from './api/paths';
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -52,7 +53,7 @@ export default function App() {
 
   const fetchActiveSession = async () => {
     try {
-      const res = await fetch('/api/sessions');
+      const res = await fetch(API.sessions);
       const data = await res.json();
       const list = data.sessions || [];
       if (list.length > 0) {

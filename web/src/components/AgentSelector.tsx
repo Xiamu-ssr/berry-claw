@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Bot, ChevronDown, Cpu } from 'lucide-react';
 import type { AgentInfo, ModelInfo } from '../types';
+import { API } from '../api/paths';
 
 interface AgentSelectorProps {
   onAgentSwitch?: () => void;
@@ -38,8 +39,8 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
 
   const refresh = async () => {
     const [agentsRes, modelsRes] = await Promise.all([
-      fetch('/api/agents').then(r => r.json()),
-      fetch('/api/models').then(r => r.json()),
+      fetch(API.agents).then(r => r.json()),
+      fetch(API.models).then(r => r.json()),
     ]);
     setAgents(agentsRes.agents?.map((x: { id: string; entry: AgentInfo['entry'] }) => ({ id: x.id, entry: x.entry })) ?? []);
     setActiveAgentId(agentsRes.activeAgent ?? '');
@@ -48,7 +49,7 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
   };
 
   const switchAgent = async (id: string) => {
-    await fetch(`/api/agents/${id}/activate`, { method: 'POST' });
+    await fetch(API.agentActivate(id), { method: 'POST' });
     setActiveAgentId(id);
     setAgentOpen(false);
     onAgentSwitch?.();
@@ -56,7 +57,7 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
   };
 
   const switchModel = async (model: string) => {
-    await fetch('/api/models/switch', {
+    await fetch(API.modelsSwitch, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),

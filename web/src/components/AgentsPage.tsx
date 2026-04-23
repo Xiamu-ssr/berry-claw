@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2 } from 'lucide-react';
 import { showToast } from './Toast';
+import { API } from '../api/paths';
 
 interface AgentEntry {
   id: string;
@@ -69,7 +70,7 @@ export default function AgentsPage() {
     // Initial fetch
     (async () => {
       try {
-        const res = await fetch('/api/agents/statuses');
+        const res = await fetch(API.agentStatuses);
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setStatuses(data.statuses ?? {});
@@ -93,7 +94,7 @@ export default function AgentsPage() {
   const loadInspect = useCallback(async (id: string) => {
     setInspectLoading(id);
     try {
-      const res = await fetch(`/api/agents/${id}/inspect`);
+      const res = await fetch(API.agentInspect(id));
       const data = await res.json();
       setInspectData(prev => ({ ...prev, [id]: data.runtime }));
     } finally {
@@ -114,7 +115,7 @@ export default function AgentsPage() {
     const disabled = new Set(agent.entry.disabledTools ?? []);
     if (disabled.has(toolName)) disabled.delete(toolName);
     else disabled.add(toolName);
-    const res = await fetch(`/api/agents/${agent.id}`, {
+    const res = await fetch(API.agent(agent.id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ disabledTools: [...disabled] }),
@@ -131,7 +132,7 @@ export default function AgentsPage() {
     const disabled = new Set(agent.entry.disabledSkills ?? []);
     if (disabled.has(skillName)) disabled.delete(skillName);
     else disabled.add(skillName);
-    const res = await fetch(`/api/agents/${agent.id}`, {
+    const res = await fetch(API.agent(agent.id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ disabledSkills: [...disabled] }),
@@ -150,14 +151,14 @@ export default function AgentsPage() {
   };
 
   const fetchAgents = useCallback(async () => {
-    const res = await fetch('/api/agents');
+    const res = await fetch(API.agents);
     const data = await res.json();
     setAgents(data.agents);
     setActiveAgent(data.activeAgent);
   }, []);
 
   const fetchModels = useCallback(async () => {
-    const res = await fetch('/api/models');
+    const res = await fetch(API.models);
     const data = await res.json();
     setModels(data.models);
   }, []);
@@ -173,7 +174,7 @@ export default function AgentsPage() {
 
   const handleCreate = async () => {
     if (!form.id || !form.name || !form.model) return;
-    await fetch(`/api/agents/${form.id}`, {
+    await fetch(API.agent(form.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -191,7 +192,7 @@ export default function AgentsPage() {
   const handleUpdate = async (id: string) => {
     const agent = agents.find(a => a.id === id);
     if (!agent) return;
-    await fetch(`/api/agents/${id}`, {
+    await fetch(API.agent(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -208,12 +209,12 @@ export default function AgentsPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm(`Delete agent "${id}"?`)) return;
-    await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+    await fetch(API.agent(id), { method: 'DELETE' });
     fetchAgents();
   };
 
   const handleActivate = async (id: string) => {
-    await fetch(`/api/agents/${id}/activate`, { method: 'POST' });
+    await fetch(API.agentActivate(id), { method: 'POST' });
     setActiveAgent(id);
   };
 

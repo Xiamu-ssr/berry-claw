@@ -19,6 +19,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Crown, FolderOpen, RefreshCw, ArrowLeft, MessageSquare, Trash2, ListChecks, Loader2, CheckCircle2, XCircle, Circle, CircleDot } from 'lucide-react';
 import { showToast } from './Toast';
+import { API } from '../api/paths';
 
 interface TeammateRecord {
   id: string;
@@ -79,13 +80,13 @@ export default function TeamsPage() {
   const [creating, setCreating] = useState(false);
 
   const fetchTeams = useCallback(async () => {
-    const res = await fetch('/api/teams');
+    const res = await fetch(API.teams);
     const data = await res.json();
     setTeams(data.teams || []);
   }, []);
 
   const fetchAgents = useCallback(async () => {
-    const res = await fetch('/api/agents');
+    const res = await fetch(API.agents);
     const data = await res.json();
     setAgents(data.agents || []);
   }, []);
@@ -217,7 +218,7 @@ function NewTeamModal({
     if (!form.leaderId) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/agents/${form.leaderId}/team/start`, {
+      const res = await fetch(API.agentTeamStart(form.leaderId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: form.name.trim() || 'team' }),
@@ -321,10 +322,10 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
   const fetchAll = useCallback(async () => {
     try {
       const [teamRes, msgsRes, worklistRes, agentsRes] = await Promise.all([
-        fetch(`/api/agents/${leaderId}/team`),
-        fetch(`/api/agents/${leaderId}/team/messages`),
-        fetch(`/api/agents/${leaderId}/team/worklist`),
-        fetch('/api/agents'),
+        fetch(API.agentTeam(leaderId)),
+        fetch(API.agentTeamMessages(leaderId)),
+        fetch(API.agentTeamWorklist(leaderId)),
+        fetch(API.agents),
       ]);
       const teamData = await teamRes.json();
       const msgsData = msgsRes.ok ? await msgsRes.json() : { messages: [] };
@@ -375,7 +376,7 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
     if (!confirm(`Disband team "${team.name}"? This removes all ${team.teammates.length} teammate(s) and deletes team.json, messages.jsonl, and worklist.json under ${team.project}/.berry/. Session logs are preserved.`)) return;
     setDisbanding(true);
     try {
-      const res = await fetch(`/api/agents/${leaderId}/team`, { method: 'DELETE' });
+      const res = await fetch(API.agentTeam(leaderId), { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to disband');
@@ -390,7 +391,7 @@ function TeamDetailView({ leaderId, onBack }: { leaderId: string; onBack: () => 
   };
 
   const handleChatWithLeader = async () => {
-    await fetch(`/api/agents/${leaderId}/activate`, { method: 'POST' });
+    await fetch(API.agentActivate(leaderId), { method: 'POST' });
     // The Chat tab activates automatically on next render; simplest is to
     // tell the user where to go and let them click. Slightly smoother:
     // dispatch a custom event that App.tsx listens for.

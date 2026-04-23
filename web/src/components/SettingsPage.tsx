@@ -19,6 +19,7 @@ import {
   Layers, Zap, RefreshCw, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { showToast } from './Toast';
+import { API } from '../api/paths';
 
 // ============================================================
 // Types (mirror server payload shapes)
@@ -92,8 +93,8 @@ export default function SettingsPage() {
 
   const refresh = useCallback(async () => {
     const [cfg, presetRes] = await Promise.all([
-      fetch('/api/config').then(r => r.json()),
-      fetch('/api/config/presets').then(r => r.json()),
+      fetch(API.config).then(r => r.json()),
+      fetch(API.configPresets).then(r => r.json()),
     ]);
     setConfig(cfg);
     setPresets(presetRes.presets ?? []);
@@ -387,7 +388,7 @@ function ProvidersTab({ config, presets, onChange }: {
     }
     // Preset-based instance: we inherit baseUrl/type/knownModels from the
     // preset on the server side. Don't send overrides from the form.
-    const res = await fetch(`/api/config/provider-instances/${encodeURIComponent(form.id)}`, {
+    const res = await fetch(API.providerInstance(form.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -403,7 +404,7 @@ function ProvidersTab({ config, presets, onChange }: {
 
   const remove = async (id: string) => {
     if (!confirm(`Remove provider "${id}"?`)) return;
-    await fetch(`/api/config/provider-instances/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await fetch(API.providerInstance(id), { method: 'DELETE' });
     showToast('Provider removed');
     onChange();
   };
@@ -411,7 +412,7 @@ function ProvidersTab({ config, presets, onChange }: {
   const fetchRemoteModels = async (id: string) => {
     setLoadingModels(id);
     try {
-      const res = await fetch(`/api/config/provider-instances/${encodeURIComponent(id)}/models`);
+      const res = await fetch(API.providerInstanceModels(id));
       const data = await res.json();
       if (!res.ok) { showToast(data.error ?? 'Failed to list models', 'error'); return; }
       setModelsByProvider(prev => ({ ...prev, [id]: data.models ?? [] }));
@@ -643,7 +644,7 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
     const id = newId.trim();
     if (!id) { showToast('Model id required', 'error'); return; }
     if (providerIds.length === 0) { showToast('Add a provider instance first', 'error'); return; }
-    const res = await fetch(`/api/config/models/${encodeURIComponent(id)}`, {
+    const res = await fetch(API.configModel(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ providers: [{ providerId: providerIds[0] }] }),
@@ -659,7 +660,7 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
   };
 
   const updateProviders = async (id: string, providers: ModelBindingProviderRef[]) => {
-    const res = await fetch(`/api/config/models/${encodeURIComponent(id)}`, {
+    const res = await fetch(API.configModel(id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ providers }),
@@ -673,7 +674,7 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
 
   const remove = async (id: string) => {
     if (!confirm(`Remove model binding "${id}"?`)) return;
-    await fetch(`/api/config/models/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await fetch(API.configModel(id), { method: 'DELETE' });
     showToast('Model removed');
     onChange();
   };
@@ -886,7 +887,7 @@ function TiersTab({ config, onChange }: { config: ConfigPayload; onChange: () =>
   const modelIds = Object.keys(config.models);
 
   const setTier = async (tier: TierId, modelId: string | null) => {
-    await fetch(`/api/config/tiers/${tier}`, {
+    await fetch(API.configTier(tier), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ modelId }),
@@ -964,7 +965,7 @@ function CredentialsTab() {
   const [values, setValues] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
-    const res = await fetch('/api/credentials');
+    const res = await fetch(API.credentials);
     const data = await res.json();
     setItems(data.credentials ?? []);
   }, []);
@@ -974,7 +975,7 @@ function CredentialsTab() {
   const save = async (key: string) => {
     const value = (values[key] ?? '').trim();
     if (!value) return;
-    const res = await fetch(`/api/credentials/${encodeURIComponent(key)}`, {
+    const res = await fetch(API.credential(key), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value }),
@@ -990,7 +991,7 @@ function CredentialsTab() {
 
   const remove = async (key: string) => {
     if (!confirm(`Remove credential "${key}"?`)) return;
-    await fetch(`/api/credentials/${encodeURIComponent(key)}`, { method: 'DELETE' });
+    await fetch(API.credential(key), { method: 'DELETE' });
     showToast('Credential removed');
     refresh();
   };
