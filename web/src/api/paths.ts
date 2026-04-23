@@ -51,6 +51,10 @@ export const API = {
     `/api/agents/${encodeURIComponent(id)}/activate`,
   agentInspect: (id: string) =>
     `/api/agents/${encodeURIComponent(id)}/inspect`,
+  agentMemory: (id: string) =>
+    `/api/agents/${encodeURIComponent(id)}/memory`,
+  agentProjectKnowledge: (id: string) =>
+    `/api/agents/${encodeURIComponent(id)}/project/knowledge`,
 
   // Teams (keyed by leader agent id)
   agentTeam: (leaderId: string) =>

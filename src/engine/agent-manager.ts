@@ -259,8 +259,16 @@ export class AgentManager {
     // Build tools based on config
     const tools = buildTools(workspace, entry, this.credentials);
 
-    // Memory provider: FTS5-backed search over MEMORY.md + memory/*.md
-    const memoryProvider = createFileMemoryProvider({ workspaceDir: workspace });
+    // Memory provider: FTS5-backed search over
+    //   - {workspace}/MEMORY.md + memory/*.md  (personal)
+    //   - {project}/AGENTS.md, PROJECT.md, .berry-discoveries.md  (shared,
+    //     if the agent is bound to a project)
+    // Teammates on the same project all point at the same projectDir, so
+    // save_discovery from any of them shows up in every other's search.
+    const memoryProvider = createFileMemoryProvider({
+      workspaceDir: workspace,
+      projectDir: projectRoot,
+    });
     // sync() builds the FTS index; fire-and-forget is fine — it uses sync IO internally
     // and finishes near-instantly. The first search call will hit a warm index.
     memoryProvider.sync().catch(() => {/* best-effort */});

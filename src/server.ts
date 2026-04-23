@@ -463,6 +463,60 @@ export function startServer(port: number) {
   });
 
   // ============================
+  // Memory API — per-agent MEMORY.md + per-project .berry-discoveries.md
+  // ============================
+
+  /** Read agent's personal MEMORY.md (empty string if file doesn't exist yet). */
+  app.get('/api/agents/:id/memory', async (req, res) => {
+    const entry = manager.config.getAgent(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'agent not found' });
+    const { join } = await import('node:path');
+    const { readFile } = await import('node:fs/promises');
+    const workspace = manager.config.agentWorkspace(req.params.id);
+    const memPath = join(workspace, 'MEMORY.md');
+    try {
+      const content = await readFile(memPath, 'utf-8');
+      res.json({ path: memPath, content });
+    } catch {
+      res.json({ path: memPath, content: '' });
+    }
+  });
+
+  /** Overwrite agent's MEMORY.md. Mainly for letting the user curate it. */
+  app.put('/api/agents/:id/memory', async (req, res) => {
+    const entry = manager.config.getAgent(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'agent not found' });
+    const content = typeof req.body?.content === 'string' ? req.body.content : '';
+    const { join } = await import('node:path');
+    const { writeFile } = await import('node:fs/promises');
+    const workspace = manager.config.agentWorkspace(req.params.id);
+    await writeFile(join(workspace, 'MEMORY.md'), content, 'utf-8');
+    res.json({ ok: true, bytes: content.length });
+  });
+
+  /**
+   * Read the shared project discoveries for an agent's project binding.
+   * Returns { project, content } where content is the raw markdown.
+   * Also pulls AGENTS.md / PROJECT.md when present so the UI can show
+   * the full "what this team knows" picture in one panel.
+   */
+  app.get('/api/agents/:id/project/knowledge', async (req, res) => {
+    const entry = manager.config.getAgent(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'agent not found' });
+    if (!entry.project) return res.json({ project: null, files: [] });
+    const { join } = await import('node:path');
+    const { readFile } = await import('node:fs/promises');
+    const files: Array<{ path: string; content: string }> = [];
+    for (const name of ['AGENTS.md', 'PROJECT.md', '.berry-discoveries.md']) {
+      try {
+        const content = await readFile(join(entry.project, name), 'utf-8');
+        if (content.trim().length > 0) files.push({ path: name, content });
+      } catch { /* missing file is fine */ }
+    }
+    res.json({ project: entry.project, files });
+  });
+
+  // ============================
   // Session API
   // ============================
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2, Network, List } from 'lucide-react';
 import AgentsGraph from './AgentsGraph';
+import MemoryPanel from './MemoryPanel';
 import { showToast } from './Toast';
 import { API } from '../api/paths';
 import { useAgentFacts } from '../facts/useFacts';
@@ -419,13 +420,18 @@ export default function AgentsPage() {
 
               {/* Inspect panel */}
               {expanded === agent.id && editing !== agent.id && (
-                <InspectPanel
-                  agent={agent}
-                  runtime={inspectData[agent.id] ?? null}
-                  loading={inspectLoading === agent.id}
-                  onToggleTool={(name) => toggleTool(agent, name)}
-                  onToggleSkill={(name) => toggleSkill(agent, name)}
-                />
+                <>
+                  <InspectPanel
+                    agent={agent}
+                    runtime={inspectData[agent.id] ?? null}
+                    loading={inspectLoading === agent.id}
+                    onToggleTool={(name) => toggleTool(agent, name)}
+                    onToggleSkill={(name) => toggleSkill(agent, name)}
+                  />
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <MemoryPanel agentId={agent.id} hasProject={!!agent.entry.project} />
+                  </div>
+                </>
               )}
             </div>
           ))}
