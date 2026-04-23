@@ -267,7 +267,6 @@ export default function App() {
       {/* Sidebar */}
       <Sidebar
         activeTab={activeTab}
-        onCompact={handleCompact}
         onTabChange={setActiveTab}
       />
 
@@ -299,6 +298,7 @@ export default function App() {
             pendingTools={pendingTools}
             isLoading={isLoading}
             onSend={handleSend}
+            onCompact={handleCompact}
           />
         )}
 

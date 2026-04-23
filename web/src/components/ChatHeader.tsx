@@ -1,27 +1,27 @@
+/**
+ * Chat-page top bar. Replaces the old w-56 left panel that wasted ~70%
+ * vertical space to host two controls.
+ *
+ * Layout (horizontal): [Agent ▼]  [Model ▼]  …spacer…  [↻ Compact]
+ *
+ * All state reads flow through the FactStore via useFacts hooks — the
+ * bar participates in the same single-source-of-truth loop as every
+ * other component, so cross-tab switches propagate with zero glue.
+ */
 import { useState, useEffect, useRef } from 'react';
-import { Bot, ChevronDown, Cpu } from 'lucide-react';
+import { Bot, ChevronDown, Cpu, RefreshCw } from 'lucide-react';
 import type { ModelInfo } from '../types';
 import { API } from '../api/paths';
 import { useAgentFacts, useActiveAgent } from '../facts/useFacts';
 
-/**
- * Agent + model quick-switch widget.
- *
- * Reads live agent state from the FactStore — no direct `/api/agents`
- * fetch, no `currentModel` local useState. A switch() call POSTs the
- * intent; the server mutates; FactBus emits; this component re-renders.
- * That's the full loop — no manual refresh, no cross-component events.
- */
-interface AgentSelectorProps {
+interface ChatHeaderProps {
+  onCompact: () => void;
   onAgentSwitch?: () => void;
 }
 
-export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
+export default function ChatHeader({ onCompact, onAgentSwitch }: ChatHeaderProps) {
   const agents = useAgentFacts();
   const activeAgent = useActiveAgent();
-  // Models list is config-layer data (not per-agent runtime); fetched
-  // once and stays stable until Settings mutates it. If/when we model
-  // "model registry" as a fact we can drop this too.
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [agentOpen, setAgentOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -32,21 +32,19 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
     fetch(API.models).then(r => r.json()).then(d => setModels(d.models ?? []));
   }, []);
 
-  // Close dropdowns on outside click
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const h = (e: MouseEvent) => {
       if (agentRef.current && !agentRef.current.contains(e.target as Node)) setAgentOpen(false);
       if (modelRef.current && !modelRef.current.contains(e.target as Node)) setModelOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
   }, []);
 
   const switchAgent = async (id: string) => {
     await fetch(API.agentActivate(id), { method: 'POST' });
     setAgentOpen(false);
     onAgentSwitch?.();
-    // No refresh() — FactBus will push the new isActive flags.
   };
 
   const switchModel = async (model: string) => {
@@ -56,28 +54,25 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
       body: JSON.stringify({ model }),
     });
     setModelOpen(false);
-    // Again: FactBus emits the AgentFact with new `model`; no local setState.
   };
 
   const currentModel = activeAgent?.model ?? '';
-  const displayModel = currentModel.split('/').pop() || currentModel;
+  const displayModel = currentModel.split('/').pop() || currentModel || 'No model';
 
   return (
-    <div className="px-3 py-3 border-b border-gray-200 dark:border-gray-700">
-      {/* Agent selector */}
-      <div ref={agentRef} className="relative mb-2">
+    <div className="flex items-center gap-2 px-4 h-12 border-b border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm flex-shrink-0">
+      {/* Agent picker */}
+      <div ref={agentRef} className="relative">
         <button
           onClick={() => setAgentOpen(!agentOpen)}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:border-berry-300 transition-colors text-left"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-medium text-gray-700 dark:text-gray-200 transition-colors"
         >
-          <Bot size={16} className="text-berry-500 flex-shrink-0" />
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate flex-1">
-            {activeAgent?.name ?? 'No Agent'}
-          </span>
-          <ChevronDown size={14} className={`text-gray-400 transition-transform ${agentOpen ? 'rotate-180' : ''}`} />
+          <Bot size={15} className="text-berry-500" />
+          <span className="max-w-[120px] truncate">{activeAgent?.name ?? 'No Agent'}</span>
+          <ChevronDown size={13} className={`text-gray-400 transition-transform ${agentOpen ? 'rotate-180' : ''}`} />
         </button>
         {agentOpen && agents.length > 0 && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg overflow-hidden">
+          <div className="absolute z-50 top-full left-0 mt-1 min-w-[220px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg overflow-hidden">
             {agents.map(a => (
               <button
                 key={a.id}
@@ -94,20 +89,18 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
         )}
       </div>
 
-      {/* Model quick-switch */}
+      {/* Model picker */}
       <div ref={modelRef} className="relative">
         <button
           onClick={() => setModelOpen(!modelOpen)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-xs font-mono text-gray-500 dark:text-gray-400 transition-colors"
         >
-          <Cpu size={14} className="text-gray-400 flex-shrink-0" />
-          <span className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate flex-1">
-            {displayModel || 'No model'}
-          </span>
-          <ChevronDown size={12} className={`text-gray-400 transition-transform ${modelOpen ? 'rotate-180' : ''}`} />
+          <Cpu size={13} />
+          <span className="max-w-[180px] truncate">{displayModel}</span>
+          <ChevronDown size={12} className={`transition-transform ${modelOpen ? 'rotate-180' : ''}`} />
         </button>
         {modelOpen && models.length > 0 && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+          <div className="absolute z-50 top-full left-0 mt-1 min-w-[260px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg overflow-hidden max-h-64 overflow-y-auto">
             {models.map(m => (
               <button
                 key={m.model}
@@ -123,6 +116,18 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
           </div>
         )}
       </div>
+
+      <div className="flex-1" />
+
+      {/* Compact */}
+      <button
+        onClick={onCompact}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+        title="Compact session — collapse old messages into a summary (like /new)"
+      >
+        <RefreshCw size={14} />
+        <span>Compact</span>
+      </button>
     </div>
   );
 }

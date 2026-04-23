@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
 import MessageBubble from './MessageBubble';
+import ChatHeader from './ChatHeader';
 import type { ChatMessage, ToolCallInfo } from '../types';
 
 interface ChatAreaProps {
@@ -13,9 +14,10 @@ interface ChatAreaProps {
   pendingTools: ToolCallInfo[];
   isLoading: boolean;
   onSend: (prompt: string) => void;
+  onCompact: () => void;
 }
 
-export default function ChatArea({ messages, streamingText, thinkingText, pendingTools, isLoading, onSend }: ChatAreaProps) {
+export default function ChatArea({ messages, streamingText, thinkingText, pendingTools, isLoading, onSend, onCompact }: ChatAreaProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +72,7 @@ export default function ChatArea({ messages, streamingText, thinkingText, pendin
 
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-900">
+      <ChatHeader onCompact={onCompact} />
       {/* Messages */}
       <div
         ref={scrollContainerRef}

@@ -23,6 +23,15 @@ class FactStore {
   private teams = new Map<string, TeamFact>();
   private sessions = new Map<string, SessionFact>();
 
+  // Cached snapshot arrays. useSyncExternalStore requires getSnapshot to
+  // return a stable reference when nothing changed — otherwise React bails
+  // with 'The result of getSnapshot should be cached to avoid an infinite
+  // loop'. We rebuild only on apply()/hydrate() mutations.
+  private agentsList: AgentFact[] = [];
+  private teamsList: TeamFact[] = [];
+  private sessionsList: SessionFact[] = [];
+  private activeAgentCache: AgentFact | undefined;
+
   private listenersByKind: Record<FactKind, Set<Listener>> = {
     agent: new Set(),
     team: new Set(),
@@ -53,6 +62,18 @@ class FactStore {
     const bucket = this.bucketFor(change.kind);
     if (change.fact === null) bucket.delete(change.id);
     else bucket.set(change.id, change.fact as never);
+    this.rebuildCache(change.kind);
+  }
+
+  private rebuildCache(kind: FactKind): void {
+    if (kind === 'agent') {
+      this.agentsList = [...this.agents.values()];
+      this.activeAgentCache = this.agentsList.find((a) => a.isActive);
+    } else if (kind === 'team') {
+      this.teamsList = [...this.teams.values()];
+    } else {
+      this.sessionsList = [...this.sessions.values()];
+    }
   }
 
   private bucketFor(kind: FactKind): Map<string, AgentFact | TeamFact | SessionFact> {
@@ -69,18 +90,15 @@ class FactStore {
     return () => { this.listenersByKind[kind].delete(listener); };
   }
 
-  listAgents(): AgentFact[] { return [...this.agents.values()]; }
-  listTeams(): TeamFact[] { return [...this.teams.values()]; }
-  listSessions(): SessionFact[] { return [...this.sessions.values()]; }
+  listAgents(): AgentFact[] { return this.agentsList; }
+  listTeams(): TeamFact[] { return this.teamsList; }
+  listSessions(): SessionFact[] { return this.sessionsList; }
 
   getAgent(id: string): AgentFact | undefined { return this.agents.get(id); }
   getTeam(id: string): TeamFact | undefined { return this.teams.get(id); }
 
-  /** Currently-active agent is encoded as a field on every AgentFact. */
-  activeAgent(): AgentFact | undefined {
-    for (const a of this.agents.values()) if (a.isActive) return a;
-    return undefined;
-  }
+  /** Currently-active agent — cached, stable identity until it changes. */
+  activeAgent(): AgentFact | undefined { return this.activeAgentCache; }
 
   private notifyAllKinds(): void {
     this.listenersByKind.agent.forEach((fn) => fn());
