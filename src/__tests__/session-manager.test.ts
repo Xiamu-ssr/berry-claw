@@ -32,6 +32,16 @@ describe('SessionManager', () => {
     expect(sm.getMessages('ses_1')).toHaveLength(2);
   });
 
+  it('addUserMessage flattens multimodal turns into a readable preview', () => {
+    const msg = sm.addUserMessage('ses_1', [
+      { type: 'image', data: 'abc', mediaType: 'image/png' },
+      { type: 'text', text: 'What is in this picture?' },
+    ]);
+    expect(msg.role).toBe('user');
+    expect(msg.content).toBe('[image] What is in this picture?');
+    expect(sm.listSessions()[0]!.title).toBe('[image] What is in this pictur...');
+  });
+
   it('addAssistantMessage records tool calls', () => {
     sm.addUserMessage('ses_1', 'Read a file');
     const tools = [{ name: 'read_file', input: { path: '/tmp/x' }, isError: false }];

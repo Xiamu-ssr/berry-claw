@@ -238,17 +238,25 @@ export default function App() {
   const { send, connected } = useWebSocket(handleWsMessage);
 
   const handleSend = useCallback(
-    (prompt: string) => {
+    (prompt: import('./components/ChatArea').SendPayload) => {
+      // For the optimistic local bubble we only need the text preview —
+      // the images are dispatched straight to the server and never get
+      // replayed from local state, so no need to carry them here.
+      const textPreview = typeof prompt === 'string'
+        ? prompt
+        : prompt.map((b) => b.type === 'text' ? b.text : `🖼 ${b.type}`).join(' ').trim() || '(image)';
       setMessages((prev) => [
         ...prev,
         {
           id: genId(),
           role: 'user',
-          content: prompt,
+          content: textPreview,
           timestamp: Date.now(),
         },
       ]);
-      send({ type: 'chat', prompt, sessionId: activeSessionId });
+      // send() types prompt as string on legacy paths; the server layer
+      // explicitly handles ContentBlock[]. Cast so TS stays out of the way.
+      send({ type: 'chat', prompt: prompt as unknown as string, sessionId: activeSessionId });
     },
     [send, activeSessionId],
   );

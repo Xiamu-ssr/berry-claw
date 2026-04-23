@@ -69,20 +69,31 @@ export class SessionManager {
     return this.getOrCreateState(sessionId);
   }
 
-  /** Record a user message */
-  addUserMessage(sessionId: string, prompt: string): ChatMessage {
+  /**
+   * Record a user message. Accepts either a plain string (text-only) or
+   * a ContentBlock[] (multimodal turn). For multimodal turns we flatten
+   * into a text preview here — the full content survives on the SDK's
+   * event log, so UI rehydration still sees images.
+   */
+  addUserMessage(
+    sessionId: string,
+    prompt: string | import('@berry-agent/core').ContentBlock[],
+  ): ChatMessage {
     const state = this.getOrCreateState(sessionId);
+    const textPreview = typeof prompt === 'string'
+      ? prompt
+      : prompt.map((b) => b.type === 'text' ? b.text : `[${b.type}]`).join(' ').trim();
     const msg: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       role: 'user',
-      content: prompt,
+      content: textPreview || '(media)',
       timestamp: Date.now(),
     };
     state.messages.push(msg);
     state.lastActiveAt = Date.now();
-    // Auto-generate title from first user message
-    if (!state.title) {
-      state.title = prompt.length > 30 ? prompt.slice(0, 30) + '...' : prompt;
+    // Auto-generate title from the first user text. Skip media-only turns.
+    if (!state.title && textPreview) {
+      state.title = textPreview.length > 30 ? textPreview.slice(0, 30) + '...' : textPreview;
     }
     return msg;
   }

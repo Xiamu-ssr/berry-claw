@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Terminal, CheckCircle, XCircle, Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Loader2, Terminal, CheckCircle, XCircle, Brain, ChevronDown, ChevronRight, Paperclip, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CodeBlock from './CodeBlock';
@@ -7,18 +7,48 @@ import MessageBubble from './MessageBubble';
 import ChatHeader from './ChatHeader';
 import type { ChatMessage, ToolCallInfo } from '../types';
 
+/** An image attachment queued for the next send. */
+interface ImageAttachment {
+  id: string;
+  name: string;
+  mediaType: string;
+  /** base64 data URL so <img src=...> works directly in the preview. */
+  dataUrl: string;
+  /** raw base64 (without `data:...;base64,` prefix) — what the provider wants. */
+  data: string;
+  sizeBytes: number;
+}
+
+/**
+ * Outbound payload from ChatArea. Either pure text or a ContentBlock[]
+ * mirroring the SDK wire format (only text + image blocks here).
+ */
+export type SendPayload =
+  | string
+  | Array<
+      | { type: 'text'; text: string }
+      | { type: 'image'; data: string; mediaType: string }
+    >;
+
 interface ChatAreaProps {
   messages: ChatMessage[];
   streamingText: string;
   thinkingText: string;
   pendingTools: ToolCallInfo[];
   isLoading: boolean;
-  onSend: (prompt: string) => void;
+  onSend: (prompt: SendPayload) => void;
   onCompact: () => void;
 }
 
+// Keep the in-browser cap conservative. Anthropic image limit is ~3.75MB
+// raw; base64 inflates ~33%, so 4MB raw ≈ 5.3MB on the wire. We stop there.
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const ACCEPTED_IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
 export default function ChatArea({ messages, streamingText, thinkingText, pendingTools, isLoading, onSend, onCompact }: ChatAreaProps) {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -54,11 +84,89 @@ export default function ChatArea({ messages, streamingText, thinkingText, pendin
     }
   }, [input]);
 
+  /**
+   * Turn a File into an ImageAttachment. Rejects unsupported MIME types
+   * and oversize files with a toast-style console warning (no Toast import
+   * here to avoid a cycle).
+   */
+  const ingestFile = useCallback(async (file: File): Promise<ImageAttachment | null> => {
+    if (!ACCEPTED_IMAGE_MIME.includes(file.type)) {
+      console.warn(`[chat] unsupported image type: ${file.type}`);
+      return null;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      console.warn(`[chat] image too large: ${file.size} > ${MAX_IMAGE_BYTES}`);
+      return null;
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    });
+    // dataUrl = `data:image/png;base64,XXXX` — split off the base64 body.
+    const comma = dataUrl.indexOf(',');
+    const data = comma >= 0 ? dataUrl.slice(comma + 1) : '';
+    return {
+      id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: file.name || 'pasted-image',
+      mediaType: file.type,
+      dataUrl,
+      data,
+      sizeBytes: file.size,
+    };
+  }, []);
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const incoming: ImageAttachment[] = [];
+    for (const f of Array.from(files)) {
+      const att = await ingestFile(f);
+      if (att) incoming.push(att);
+    }
+    if (incoming.length > 0) setAttachments((prev) => [...prev, ...incoming]);
+  }, [ingestFile]);
+
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // Only intercept when the clipboard carries images — plain text paste
+    // must behave normally.
+    const files: File[] = [];
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length === 0) return;
+    e.preventDefault();
+    await addFiles(files);
+  }, [addFiles]);
+
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLElement>) => {
+    if (e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    await addFiles(e.dataTransfer.files);
+  }, [addFiles]);
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
   const handleSubmit = () => {
-    const prompt = input.trim();
-    if (!prompt || isLoading) return;
-    onSend(prompt);
+    const text = input.trim();
+    if ((!text && attachments.length === 0) || isLoading) return;
+    if (attachments.length === 0) {
+      onSend(text);
+    } else {
+      // Multimodal: assemble a ContentBlock[] in SDK wire format.
+      const blocks: SendPayload = [];
+      for (const a of attachments) {
+        blocks.push({ type: 'image', data: a.data, mediaType: a.mediaType });
+      }
+      if (text) blocks.push({ type: 'text', text });
+      onSend(blocks);
+    }
     setInput('');
+    setAttachments([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -181,19 +289,66 @@ export default function ChatArea({ messages, streamingText, thinkingText, pendin
       <div className="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-white dark:bg-gray-900">
         <div className="flex items-end gap-3 max-w-4xl mx-auto">
           <div className="flex-1 relative">
+            {/* Attachments preview strip */}
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {attachments.map((a) => (
+                  <div key={a.id} className="relative group">
+                    <img
+                      src={a.dataUrl}
+                      alt={a.name}
+                      className="h-16 w-16 object-cover rounded-md border border-gray-300 dark:border-gray-600"
+                    />
+                    <button
+                      onClick={() => removeAttachment(a.id)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-900/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Remove"
+                    >
+                      <X size={11} />
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 text-[9px] text-white bg-black/60 px-1 truncate rounded-b-md">
+                      {Math.round(a.sizeBytes / 1024)}KB
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message Berry Claw..."
+              onPaste={handlePaste}
+              onDrop={handleDrop}
+              onDragOver={(e) => e.preventDefault()}
+              placeholder="Message Berry Claw... (paste or drop images)"
               rows={1}
-              className="w-full resize-none rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-3 pr-12 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-berry-500 focus:border-transparent placeholder:text-gray-400"
+              className="w-full resize-none rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-4 py-3 pr-20 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-berry-500 focus:border-transparent placeholder:text-gray-400"
               disabled={isLoading}
             />
+            {/* Attach button */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_IMAGE_MIME.join(',')}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) void addFiles(e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              title="Attach image"
+              className="absolute right-12 bottom-2 w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
+            >
+              <Paperclip size={16} />
+            </button>
             <button
               onClick={handleSubmit}
-              disabled={!input.trim() || isLoading}
+              disabled={(!input.trim() && attachments.length === 0) || isLoading}
               title="Send (Enter)"
               className="absolute right-2 bottom-2 w-8 h-8 rounded-lg bg-berry-600 hover:bg-berry-700 disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
             >

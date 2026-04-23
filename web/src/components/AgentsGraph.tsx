@@ -173,7 +173,30 @@ export default function AgentsGraph({ onSelect }: AgentsGraphProps) {
       >
         <Background gap={16} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeColor={(n) => (n.type === 'project' ? '#c7d2fe' : '#fecaca')} />
+        {/*
+         * MiniMap notes:
+         *  - Custom node components without explicit width/height need the
+         *    `nodeStrokeWidth` bump + a `nodeColor` that returns opaque color
+         *    so React Flow's internal measurement can paint them visibly.
+         *  - `maskColor` darker than the canvas clarifies viewport extent.
+         */}
+        <MiniMap
+          pannable
+          zoomable
+          nodeColor={(n) => {
+            const data = n.data as { fact?: AgentFact } | undefined;
+            return n.type === 'project'
+              ? '#818cf8'
+              : data?.fact?.isActive
+                ? '#ec4899'
+                : '#f97316';
+          }}
+          nodeStrokeColor="#1f2937"
+          nodeStrokeWidth={3}
+          nodeBorderRadius={4}
+          maskColor="rgba(17, 24, 39, 0.5)"
+          style={{ backgroundColor: 'rgba(249, 250, 251, 0.92)' }}
+        />
       </ReactFlow>
     </div>
   );

@@ -262,6 +262,23 @@ export function startServer(port: number) {
    * to seed their cache, then patch incrementally from the fact_changed
    * WS channel. `kind` may be 'agent' | 'team' | 'session' | 'all'.
    */
+  /**
+   * Ensure project-bound leader agents are initialized and any persisted
+   * `.berry/team.json` is rehydrated into live Team instances. Without
+   * this, /api/teams could show a team from disk while /api/facts?kind=team
+   * returned nothing on a fresh boot, because FactStore only saw live teams.
+   */
+  async function ensureTeamsLoaded(): Promise<void> {
+    for (const { id, entry } of manager.config.listAgents()) {
+      if (entry.project && !manager.isAgentLive(id)) {
+        try { manager.getAgent(id); } catch { /* ignore per-agent init failures */ }
+      }
+    }
+    await Promise.all(
+      manager.config.listAgents().map(({ id }) => manager.waitForTeamRehydrate(id)),
+    );
+  }
+
   app.get('/api/facts', async (req, res) => {
     const kindParam = (req.query.kind as string) || 'all';
     const kinds = kindParam === 'all' ? FACT_KINDS : [kindParam];
@@ -274,9 +291,7 @@ export function startServer(port: number) {
       }
     }
     if (kinds.includes('team')) {
-      // Snapshot every team currently live in the manager. Teams that
-      // exist on disk but whose leader isn't booted yet are skipped
-      // intentionally — they'll emit once their leader initAgents.
+      await ensureTeamsLoaded();
       for (const { id } of manager.config.listAgents()) {
         const team = manager.getTeam(id);
         if (!team) continue;
@@ -302,10 +317,10 @@ export function startServer(port: number) {
 
   /** Create/update agent */
   app.put('/api/agents/:id', (req, res) => {
-    const { name, systemPrompt, model, workspace, tools, disabledTools, skillDirs, disabledSkills } = req.body;
+    const { name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills } = req.body;
     if (!name || !model) return res.status(400).json({ error: 'name and model required' });
     manager.config.setAgent(req.params.id, {
-      name, systemPrompt, model, workspace, tools, disabledTools, skillDirs, disabledSkills,
+      name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills,
     });
     // Hot reload emits an AgentFact via the FactBus — all connected tabs
     // refresh off that single event.
@@ -354,22 +369,7 @@ export function startServer(port: number) {
    * we only list teams whose leader is live in AgentManager.
    */
   app.get('/api/teams', async (_req, res) => {
-    // Force-init any project-bound agent that isn't live yet. This is the
-    // only point where we proactively wake agents — without it the Teams
-    // tab would show "no teams" on a fresh server boot until the user hits
-    // chat, because agent instances (and thus team rehydration) are lazy.
-    // Cost: one extra init per project-bound agent on first Teams load.
-    for (const { id, entry } of manager.config.listAgents()) {
-      if (entry.project && !manager.isAgentLive(id)) {
-        try { manager.getAgent(id); } catch { /* ignore per-agent init failures */ }
-      }
-    }
-    // Wait for any in-flight rehydrates to settle. This is the reliable
-    // way — setImmediate-polling was flaky because the rehydrate promise
-    // includes a readFile + per-teammate agent.spawn.
-    await Promise.all(
-      manager.config.listAgents().map(({ id }) => manager.waitForTeamRehydrate(id)),
-    );
+    await ensureTeamsLoaded();
 
     const teams: Array<{ leaderId: string; leaderName: string; state: any }> = [];
     for (const { id, entry } of manager.config.listAgents()) {
@@ -606,9 +606,15 @@ export function startServer(port: number) {
         const msg = JSON.parse(data.toString());
 
         switch (msg.type) {
-          case 'chat':
-            await handleChat(ws, manager, msg.prompt, msg.sessionId);
+          case 'chat': {
+            // Two shapes accepted:
+            //   { type:'chat', prompt:'hi', sessionId }                 — plain text
+            //   { type:'chat', prompt:[{type:'text',...},{type:'image',data,mediaType}], sessionId }
+            //     — multimodal turn; blocks pass straight through to Agent.query().
+            const payload = msg.prompt;
+            await handleChat(ws, manager, payload, msg.sessionId);
             break;
+          }
       case 'new_session': {
         try {
           const agent = manager.getAgent();
@@ -687,7 +693,12 @@ export function startServer(port: number) {
   return { server, manager };
 }
 
-async function handleChat(ws: WebSocket, manager: AgentManager, prompt: string, sessionId?: string) {
+async function handleChat(
+  ws: WebSocket,
+  manager: AgentManager,
+  prompt: string | import('@berry-agent/core').ContentBlock[],
+  sessionId?: string,
+) {
   // Reject chat if no agent is configured
   if (!manager.activeAgent || !manager.config.getAgent(manager.activeAgent)) {
     ws.send(JSON.stringify({ type: 'error', message: 'No agent configured. Create an agent first.' }));

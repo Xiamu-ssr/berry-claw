@@ -12,6 +12,7 @@ import {
   ReactFlow,
   Background,
   Controls,
+  MiniMap,
   Handle,
   Position,
   type Node,
@@ -154,19 +155,39 @@ export default function TeamsGraph({ onLeaderSelect, onAgentSelect }: TeamsGraph
   }
 
   return (
-    <div className="w-full h-full min-h-[500px]">
+    <div className="w-full h-full min-h-[500px] relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodeClick={handleNodeClick}
         fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+        // Lean on fitView, but clamp the single-team zoom — otherwise a
+        // lonely leader node gets magnified until its text blows up.
+        fitViewOptions={{ padding: 0.4, maxZoom: 0.9, minZoom: 0.3 }}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} size={1} />
         <Controls showInteractive={false} />
+        <MiniMap
+          pannable
+          zoomable
+          nodeColor={(n) => (n.type === 'leader' ? '#f59e0b' : '#94a3b8')}
+          nodeStrokeColor="#1f2937"
+          nodeStrokeWidth={3}
+          nodeBorderRadius={4}
+          maskColor="rgba(17, 24, 39, 0.5)"
+          style={{ backgroundColor: 'rgba(249, 250, 251, 0.92)' }}
+        />
       </ReactFlow>
+      {/* Hint overlay when every team has no teammates yet — the graph
+           otherwise looks empty because a single leader node doesn't
+           communicate "this is a team". */}
+      {teams.every((t) => t.teammates.length === 0) && (
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300 shadow-sm pointer-events-none">
+          Leader is alone. Tell them <code className="font-mono">spawn_teammate</code> from chat.
+        </div>
+      )}
     </div>
   );
 }

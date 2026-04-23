@@ -2,6 +2,9 @@
  * Server API unit tests — test REST endpoints without real LLM calls
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { startServer } from '../server.js';
 import type { Server } from 'node:http';
 
@@ -187,6 +190,38 @@ describe('Team API', () => {
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toMatch(/no project/i);
+  });
+
+  it('GET /api/facts?kind=team includes cold-boot rehydrated teams', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'berry-claw-team-facts-'));
+    try {
+      await fetch(`${BASE}/api/agents/team-facts-leader`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Team Facts Leader',
+          model: 'gpt-4o',
+          project,
+          systemPrompt: 'leader',
+        }),
+      });
+      const started = await fetch(`${BASE}/api/agents/team-facts-leader/team/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: '事实源团队' }),
+      });
+      expect(started.ok).toBe(true);
+
+      const facts = await fetch(`${BASE}/api/facts?kind=team`).then(r => r.json());
+      const teams = await fetch(`${BASE}/api/teams`).then(r => r.json());
+
+      expect(teams.teams.some((t: any) => t.leaderId === 'team-facts-leader')).toBe(true);
+      expect(facts.changes.some((c: any) => c.kind === 'team' && c.id === 'team-facts-leader')).toBe(true);
+    } finally {
+      await fetch(`${BASE}/api/agents/team-facts-leader/team`, { method: 'DELETE' }).catch(() => {});
+      await fetch(`${BASE}/api/agents/team-facts-leader`, { method: 'DELETE' }).catch(() => {});
+      await rm(project, { recursive: true, force: true });
+    }
   });
 
   it('GET /api/agents/:id/team/messages 404s when no team exists', async () => {

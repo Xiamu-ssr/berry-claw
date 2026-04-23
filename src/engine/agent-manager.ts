@@ -725,9 +725,17 @@ export class AgentManager {
     return this.sessions.listSessions();
   }
 
-  /** Chat with active agent */
+  /**
+   * Chat with active agent.
+   *
+   * `prompt` accepts either a plain string or a ContentBlock[] for
+   * multimodal input (text + image blocks). The SDK provider adapters
+   * handle wire-format translation; all we do here is pass through +
+   * persist a string-only preview into session.messages (the full
+   * content lives on the SDK's Message objects / event log).
+   */
   async chat(
-    prompt: string,
+    prompt: string | import('@berry-agent/core').ContentBlock[],
     options?: { sessionId?: string; agentId?: string; onEvent?: (event: AgentEvent) => void },
   ): Promise<{ result: QueryResult; assistantMessage: ChatMessage }> {
     const agent = this.getAgent(options?.agentId);
