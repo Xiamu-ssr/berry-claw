@@ -17,7 +17,8 @@
  *     hook; no new WS event types are introduced.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Crown, FolderOpen, RefreshCw, ArrowLeft, MessageSquare, Trash2, ListChecks, Loader2, CheckCircle2, XCircle, Circle, CircleDot } from 'lucide-react';
+import { Users, Plus, Crown, FolderOpen, RefreshCw, ArrowLeft, MessageSquare, Trash2, ListChecks, Loader2, CheckCircle2, XCircle, Circle, CircleDot, Network, List } from 'lucide-react';
+import TeamsGraph from './TeamsGraph';
 import { showToast } from './Toast';
 import { API } from '../api/paths';
 
@@ -78,6 +79,7 @@ export default function TeamsPage() {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [selectedLeader, setSelectedLeader] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
 
   const fetchTeams = useCallback(async () => {
     const res = await fetch(API.teams);
@@ -109,6 +111,48 @@ export default function TeamsPage() {
     );
   }
 
+  // Graph view — hijacks the canvas so teams are visible at a glance.
+  // Clicking a leader node dives into the existing TeamDetailView via
+  // setSelectedLeader (same path the list view uses).
+  if (viewMode === 'graph' && !creating) {
+    return (
+      <div className="flex-1 flex flex-col bg-white dark:bg-gray-900">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <Users size={20} /> Teams
+          </h1>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button onClick={() => setViewMode('graph')} className="px-2.5 py-1.5 text-xs flex items-center gap-1 bg-berry-600 text-white">
+                <Network size={13} />Graph
+              </button>
+              <button onClick={() => setViewMode('list')} className="px-2.5 py-1.5 text-xs flex items-center gap-1 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800">
+                <List size={13} />List
+              </button>
+            </div>
+            <button onClick={() => setCreating(true)} className="px-3 py-1.5 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-1.5 text-sm">
+              <Plus size={14} /> New Team
+            </button>
+          </div>
+        </div>
+        <div className="flex-1">
+          <TeamsGraph onLeaderSelect={(id) => setSelectedLeader(id)} />
+        </div>
+        {creating && (
+          <NewTeamModal
+            agents={agents}
+            onClose={() => setCreating(false)}
+            onCreated={(leaderId) => {
+              setCreating(false);
+              fetchTeams();
+              setSelectedLeader(leaderId);
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   // List view
   return (
     <div className="flex-1 overflow-y-auto p-6 bg-white dark:bg-gray-900">
@@ -122,12 +166,22 @@ export default function TeamsPage() {
               A team is a leader agent + teammates sharing a project workspace.
             </p>
           </div>
-          <button
-            onClick={() => setCreating(true)}
-            className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-2 transition-colors"
-          >
-            <Plus size={16} /> New Team
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button onClick={() => setViewMode('graph')} className="px-2.5 py-1.5 text-xs flex items-center gap-1 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800">
+                <Network size={13} />Graph
+              </button>
+              <button onClick={() => setViewMode('list')} className="px-2.5 py-1.5 text-xs flex items-center gap-1 bg-berry-600 text-white">
+                <List size={13} />List
+              </button>
+            </div>
+            <button
+              onClick={() => setCreating(true)}
+              className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <Plus size={16} /> New Team
+            </button>
+          </div>
         </div>
 
         {creating && (
