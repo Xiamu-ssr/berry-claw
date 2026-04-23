@@ -11,6 +11,8 @@ import { AgentManager, getToolGroup } from './engine/agent-manager.js';
 import { createObserveRouter } from '@berry-agent/observe';
 import type { AgentEvent } from '@berry-agent/core';
 import { WEB_SEARCH_CREDENTIAL_META, type CredentialKeyMeta } from '@berry-agent/tools-common';
+import { deriveAgentFact, deriveTeamFact } from './facts/derive.js';
+import { FACT_KINDS, type FactChange } from './facts/types.js';
 
 /**
  * Mask API keys for display: show a short prefix + a run of bullets + last 3
@@ -255,6 +257,40 @@ export function startServer(port: number) {
    * Runtime status snapshot for every initialized agent instance. Uninstantiated
    * agents are reported as 'idle' so the UI can still render a pill.
    */
+  /**
+   * Snapshot endpoint for FactBus consumers. UIs call this once on mount
+   * to seed their cache, then patch incrementally from the fact_changed
+   * WS channel. `kind` may be 'agent' | 'team' | 'session' | 'all'.
+   */
+  app.get('/api/facts', async (req, res) => {
+    const kindParam = (req.query.kind as string) || 'all';
+    const kinds = kindParam === 'all' ? FACT_KINDS : [kindParam];
+    const changes: FactChange[] = [];
+
+    if (kinds.includes('agent')) {
+      for (const { id } of manager.config.listAgents()) {
+        const fact = deriveAgentFact(manager, id);
+        if (fact) changes.push({ kind: 'agent', id, fact });
+      }
+    }
+    if (kinds.includes('team')) {
+      // Snapshot every team currently live in the manager. Teams that
+      // exist on disk but whose leader isn't booted yet are skipped
+      // intentionally — they'll emit once their leader initAgents.
+      for (const { id } of manager.config.listAgents()) {
+        const team = manager.getTeam(id);
+        if (!team) continue;
+        const fact = await deriveTeamFact(team);
+        changes.push({ kind: 'team', id, fact });
+      }
+    }
+    // session facts: not yet wired into FactBus; Phase 2 intentionally
+    // stops at agent + team. Session dimension added later once we define
+    // how session lifecycle events integrate with the bus.
+
+    res.json({ changes });
+  });
+
   app.get('/api/agents/statuses', (_req, res) => {
     const out: Record<string, { status: string; detail?: string }> = {};
     for (const { id } of manager.config.listAgents()) {
@@ -271,9 +307,9 @@ export function startServer(port: number) {
     manager.config.setAgent(req.params.id, {
       name, systemPrompt, model, workspace, tools, disabledTools, skillDirs, disabledSkills,
     });
-    // Hot reload: drop cached Agent instance so next query re-reads config
+    // Hot reload emits an AgentFact via the FactBus — all connected tabs
+    // refresh off that single event.
     manager.reloadAgent(req.params.id);
-    broadcast('config_changed', { scope: 'agent', id: req.params.id });
     res.json({ ok: true });
   });
 
@@ -284,14 +320,13 @@ export function startServer(port: number) {
     const merged = { ...current, ...req.body };
     manager.config.setAgent(req.params.id, merged);
     manager.reloadAgent(req.params.id);
-    broadcast('config_changed', { scope: 'agent', id: req.params.id });
     res.json({ ok: true, entry: merged });
   });
 
   /** Delete agent */
   app.delete('/api/agents/:id', (req, res) => {
     manager.config.removeAgent(req.params.id);
-    broadcast('config_changed', { scope: 'agent', id: req.params.id, deleted: true });
+    manager.factBus.emitAgent(req.params.id, null);
     res.json({ ok: true });
   });
 
@@ -486,7 +521,10 @@ export function startServer(port: number) {
 
   const server = createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
-  /** Active WebSocket clients for broadcast pushes (config changes, etc.) */
+  /** Active WebSocket clients. The FactBus subscription below pushes
+   *  fact_changed events to every client verbatim — the sole cross-tab
+   *  sync channel. Per-request broadcasts (like chat stream events) still
+   *  go through the client-specific ws handle. */
   const clients = new Set<WebSocket>();
 
   function broadcast(type: string, payload: Record<string, unknown>): void {
@@ -497,6 +535,13 @@ export function startServer(port: number) {
       }
     }
   }
+
+  // Relay FactBus → every WS client. This replaces the previous ad-hoc
+  // config_changed / status_change / session_* events with one unified
+  // fact_changed channel.
+  manager.factBus.on((change) => {
+    broadcast('fact_changed', change as unknown as Record<string, unknown>);
+  });
 
   wss.on('connection', (ws) => {
     clients.add(ws);

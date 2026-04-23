@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2 } from 'lucide-react';
 import { showToast } from './Toast';
 import { API } from '../api/paths';
+import { useAgentFacts } from '../facts/useFacts';
+import type { AgentFact } from '../facts/types';
 
 interface AgentEntry {
   id: string;
@@ -51,45 +53,46 @@ interface ModelInfo {
   type: string;
 }
 
+/**
+ * Adapter: turn an AgentFact (from FactStore) into the AgentEntry shape
+ * this component was originally written against. Keeping the shim limited
+ * to a single function makes later migration (to read facts directly)
+ * trivial.
+ */
+function factToEntry(fact: AgentFact): AgentEntry {
+  return {
+    id: fact.id,
+    entry: {
+      name: fact.name,
+      model: fact.model,
+      systemPrompt: fact.systemPrompt,
+      workspace: fact.workspace,
+      project: fact.project,
+      tools: fact.tools,
+      disabledTools: fact.disabledTools,
+      skillDirs: fact.skillDirs,
+      disabledSkills: fact.disabledSkills,
+    },
+  };
+}
+
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<AgentEntry[]>([]);
-  const [activeAgent, setActiveAgent] = useState('');
+  const agentFacts = useAgentFacts();
+  const agents = useMemo(() => agentFacts.map(factToEntry), [agentFacts]);
+  const activeAgent = agentFacts.find((a) => a.isActive)?.id ?? '';
+  const statuses = useMemo(() => {
+    const out: Record<string, { status: string; detail?: string }> = {};
+    for (const f of agentFacts) out[f.id] = { status: f.status, detail: f.statusDetail };
+    return out;
+  }, [agentFacts]);
+
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [inspectData, setInspectData] = useState<Record<string, InspectRuntime | null>>({});
   const [inspectLoading, setInspectLoading] = useState<string | null>(null);
-  const [statuses, setStatuses] = useState<Record<string, { status: string; detail?: string }>>({});
   const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '', project: '' });
-
-  // Fetch statuses once on mount, then update via WS status_change events.
-  // No polling — keeps network quiet when the page is just sitting there.
-  useEffect(() => {
-    let cancelled = false;
-    // Initial fetch
-    (async () => {
-      try {
-        const res = await fetch(API.agentStatuses);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setStatuses(data.statuses ?? {});
-      } catch { /* ignore */ }
-    })();
-
-    // WS listener for incremental status updates
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/ws`);
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'status_change' && msg.agentId) {
-          setStatuses(prev => ({ ...prev, [msg.agentId]: { status: msg.status, detail: msg.detail } }));
-        }
-      } catch { /* ignore */ }
-    };
-    return () => { cancelled = true; ws.close(); };
-  }, []);
 
   const loadInspect = useCallback(async (id: string) => {
     setInspectLoading(id);
@@ -125,8 +128,8 @@ export default function AgentsPage() {
       return;
     }
     showToast(`${disabled.has(toolName) ? 'Disabled' : 'Enabled'} ${toolName}`);
-    await fetchAgentsAndRefresh(agent.id);
-  }, []);
+    if (agent.id) await loadInspect(agent.id);
+  }, [loadInspect]);
 
   const toggleSkill = useCallback(async (agent: AgentEntry, skillName: string) => {
     const disabled = new Set(agent.entry.disabledSkills ?? []);
@@ -142,35 +145,15 @@ export default function AgentsPage() {
       return;
     }
     showToast(`${disabled.has(skillName) ? 'Disabled' : 'Enabled'} ${skillName}`);
-    await fetchAgentsAndRefresh(agent.id);
-  }, []);
+    // No manual refresh — server PATCH emits an AgentFact via the bus.
+    if (agent.id) await loadInspect(agent.id);
+  }, [loadInspect]);
 
-  const fetchAgentsAndRefresh = async (id?: string) => {
-    await fetchAgents();
-    if (id) await loadInspect(id);
-  };
-
-  const fetchAgents = useCallback(async () => {
-    const res = await fetch(API.agents);
-    const data = await res.json();
-    setAgents(data.agents);
-    setActiveAgent(data.activeAgent);
-  }, []);
-
-  const fetchModels = useCallback(async () => {
-    const res = await fetch(API.models);
-    const data = await res.json();
-    setModels(data.models);
-  }, []);
-
-  useEffect(() => { fetchAgents(); fetchModels(); }, [fetchAgents, fetchModels]);
-
-  // Refresh when another tab (or server push) mutates agent config.
+  // Models list is config-layer data, not per-agent runtime. Fetched once
+  // on mount; Settings mutations already trigger a local re-fetch there.
   useEffect(() => {
-    const handler = () => { fetchAgents(); fetchModels(); };
-    window.addEventListener('berry:config-changed', handler);
-    return () => window.removeEventListener('berry:config-changed', handler);
-  }, [fetchAgents, fetchModels]);
+    fetch(API.models).then(r => r.json()).then(d => setModels(d.models ?? []));
+  }, []);
 
   const handleCreate = async () => {
     if (!form.id || !form.name || !form.model) return;
@@ -186,7 +169,6 @@ export default function AgentsPage() {
     });
     setCreating(false);
     setForm({ id: '', name: '', model: '', systemPrompt: '', project: '' });
-    fetchAgents();
   };
 
   const handleUpdate = async (id: string) => {
@@ -204,18 +186,15 @@ export default function AgentsPage() {
       }),
     });
     setEditing(null);
-    fetchAgents();
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(`Delete agent "${id}"?`)) return;
     await fetch(API.agent(id), { method: 'DELETE' });
-    fetchAgents();
   };
 
   const handleActivate = async (id: string) => {
     await fetch(API.agentActivate(id), { method: 'POST' });
-    setActiveAgent(id);
   };
 
   const startEdit = (agent: AgentEntry) => {

@@ -10,6 +10,8 @@ import ToastContainer, { useToast } from './components/Toast';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { AgentStatus, ChatMessage, ToolCallInfo, TodoItem, WsIncoming } from './types';
 import { API } from './api/paths';
+import { factStore } from './facts/store';
+import { useFactHydration } from './facts/useFacts';
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -203,9 +205,12 @@ export default function App() {
         setMessages([]);
         break;
 
-      case 'config_changed': {
-        // Notify all interested components that they should refresh their data.
-        window.dispatchEvent(new CustomEvent('berry:config-changed', { detail: msg }));
+      case 'fact_changed': {
+        // Single path for all agent/team/session state updates. The
+        // FactStore patches by id and notifies every subscribed
+        // component. This replaced the old config_changed + manual
+        // refetch choreography.
+        factStore.apply(msg.change);
         break;
       }
 
@@ -251,6 +256,10 @@ export default function App() {
   const handleCompact = useCallback(() => {
     send({ type: 'new_session' });
   }, [send]);
+
+  // Seed the FactStore with an initial snapshot. All subsequent updates
+  // arrive via the fact_changed WS channel dispatched above.
+  useFactHydration();
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900">

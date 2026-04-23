@@ -1,30 +1,35 @@
 import { useState, useEffect, useRef } from 'react';
 import { Bot, ChevronDown, Cpu } from 'lucide-react';
-import type { AgentInfo, ModelInfo } from '../types';
+import type { ModelInfo } from '../types';
 import { API } from '../api/paths';
+import { useAgentFacts, useActiveAgent } from '../facts/useFacts';
 
+/**
+ * Agent + model quick-switch widget.
+ *
+ * Reads live agent state from the FactStore — no direct `/api/agents`
+ * fetch, no `currentModel` local useState. A switch() call POSTs the
+ * intent; the server mutates; FactBus emits; this component re-renders.
+ * That's the full loop — no manual refresh, no cross-component events.
+ */
 interface AgentSelectorProps {
   onAgentSwitch?: () => void;
 }
 
 export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState('');
+  const agents = useAgentFacts();
+  const activeAgent = useActiveAgent();
+  // Models list is config-layer data (not per-agent runtime); fetched
+  // once and stays stable until Settings mutates it. If/when we model
+  // "model registry" as a fact we can drop this too.
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [currentModel, setCurrentModel] = useState('');
   const [agentOpen, setAgentOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const agentRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { refresh(); }, []);
-
-  // Refresh when server broadcasts a config mutation (another tab or
-  // tool call changed agent settings).
   useEffect(() => {
-    const handler = () => { refresh(); };
-    window.addEventListener('berry:config-changed', handler);
-    return () => window.removeEventListener('berry:config-changed', handler);
+    fetch(API.models).then(r => r.json()).then(d => setModels(d.models ?? []));
   }, []);
 
   // Close dropdowns on outside click
@@ -37,23 +42,11 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const refresh = async () => {
-    const [agentsRes, modelsRes] = await Promise.all([
-      fetch(API.agents).then(r => r.json()),
-      fetch(API.models).then(r => r.json()),
-    ]);
-    setAgents(agentsRes.agents?.map((x: { id: string; entry: AgentInfo['entry'] }) => ({ id: x.id, entry: x.entry })) ?? []);
-    setActiveAgentId(agentsRes.activeAgent ?? '');
-    setModels(modelsRes.models ?? []);
-    setCurrentModel(modelsRes.current?.model ?? '');
-  };
-
   const switchAgent = async (id: string) => {
     await fetch(API.agentActivate(id), { method: 'POST' });
-    setActiveAgentId(id);
     setAgentOpen(false);
     onAgentSwitch?.();
-    refresh();
+    // No refresh() — FactBus will push the new isActive flags.
   };
 
   const switchModel = async (model: string) => {
@@ -62,11 +55,11 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
     });
-    setCurrentModel(model);
     setModelOpen(false);
+    // Again: FactBus emits the AgentFact with new `model`; no local setState.
   };
 
-  const activeAgent = agents.find(a => a.id === activeAgentId);
+  const currentModel = activeAgent?.model ?? '';
   const displayModel = currentModel.split('/').pop() || currentModel;
 
   return (
@@ -79,7 +72,7 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
         >
           <Bot size={16} className="text-berry-500 flex-shrink-0" />
           <span className="text-sm font-medium text-gray-700 dark:text-gray-200 truncate flex-1">
-            {activeAgent?.entry.name ?? 'No Agent'}
+            {activeAgent?.name ?? 'No Agent'}
           </span>
           <ChevronDown size={14} className={`text-gray-400 transition-transform ${agentOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -90,11 +83,11 @@ export default function AgentSelector({ onAgentSwitch }: AgentSelectorProps) {
                 key={a.id}
                 onClick={() => switchAgent(a.id)}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
-                  a.id === activeAgentId ? 'bg-berry-50 dark:bg-berry-900/30 text-berry-700 dark:text-berry-300' : 'text-gray-700 dark:text-gray-200'
+                  a.isActive ? 'bg-berry-50 dark:bg-berry-900/30 text-berry-700 dark:text-berry-300' : 'text-gray-700 dark:text-gray-200'
                 }`}
               >
-                <div className="font-medium">{a.entry.name}</div>
-                <div className="text-xs text-gray-400 font-mono">{a.entry.model}</div>
+                <div className="font-medium">{a.name}</div>
+                <div className="text-xs text-gray-400 font-mono">{a.model}</div>
               </button>
             ))}
           </div>

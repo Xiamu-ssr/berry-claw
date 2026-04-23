@@ -49,6 +49,8 @@ import { createFileMemoryProvider } from '@berry-agent/memory-file';
 import { selectProvider } from '@berry-agent/models';
 import { Team, type TeamState } from '@berry-agent/team';
 import { mkdirSync, existsSync } from 'node:fs';
+import { FactBus } from '../facts/bus.js';
+import { deriveAgentFact, deriveTeamFact } from '../facts/derive.js';
 
 const TOOL_GROUPS: Record<string, readonly string[]> = {
   file: [TOOL_READ_FILE, TOOL_WRITE_FILE, TOOL_LIST_FILES, TOOL_EDIT_FILE],
@@ -150,7 +152,7 @@ function buildMultiRootScope(roots: string[]): ToolGuard {
   };
 }
 
-interface AgentInstance {
+export interface AgentInstance {
   id: string;
   agent: Agent;
   entry: AgentEntry;
@@ -162,6 +164,8 @@ export class AgentManager {
   readonly observer: Observer;
   readonly credentials: CredentialStore;
   private agents = new Map<string, AgentInstance>();
+  /** Single outbound stream of truth; server WS relays verbatim. */
+  readonly factBus = new FactBus();
   /**
    * Per-leader-agent Team instances. Keyed by the *leader* agent id.
    * Populated lazily: either on agent init (if a team.json already exists
@@ -282,7 +286,15 @@ export class AgentManager {
         denyList(['rm -rf /', 'rm -rf ~', 'DROP TABLE', 'DROP DATABASE']),
       ),
       middleware: [this.observer.middleware],
-      onEvent: this.observer.onEvent,
+      onEvent: (event) => {
+        this.observer.onEvent(event);
+        // Status changes are high-signal UI updates — flow them through
+        // the FactBus so every subscriber (AgentsPage / ChatHeader / etc.)
+        // refreshes off the same event.
+        if (event.type === 'status_change') {
+          this.emitAgentFact(id);
+        }
+      },
     });
 
     // Apply initial disabledTools via SDK allow-list (soft toggle)
@@ -311,6 +323,10 @@ export class AgentManager {
         console.warn(`[agent:${id}] team rehydrate failed:`, err);
       }
     }
+
+    // First-time instantiation flips `instantiated: false → true` on the
+    // agent's fact. Emit so UIs can drop the "config-only" badge.
+    this.emitAgentFact(id);
 
     return agent;
   }
@@ -398,6 +414,7 @@ export class AgentManager {
       this.teams.set(agentId, team);
       this.mountLeaderTools(agent, team);
     }
+    await this.emitTeamFact(agentId);
     return team.state;
   }
 
@@ -417,6 +434,10 @@ export class AgentManager {
         // instance is dropped so memory doesn't leak.
         this.agents.delete(teammateId);
         try { this.config.removeAgent(teammateId); } catch { /* already gone */ }
+        // Teammate vanished → emit deletion + refresh team fact so the
+        // UI drops the card and re-renders the teammate list in one pass.
+        this.factBus.emitAgent(teammateId, null);
+        this.emitTeamFact(leaderId).catch(() => {});
       },
       agentLookup: (teammateId: string): Agent | undefined => {
         // The host's view of this agent: if it's live in memory, return it;
@@ -519,6 +540,7 @@ export class AgentManager {
       }
     }
     this.teams.delete(agentId);
+    this.factBus.emitTeam(agentId, null);
   }
 
   /**
@@ -533,9 +555,13 @@ export class AgentManager {
     const entry = this.config.getAgent(agentId);
     if (!entry) {
       this.agents.delete(agentId);
+      this.emitAgentFact(agentId); // emits null → deletion
       return;
     }
-    if (!cached) return; // not yet initialized; next getAgent() will read fresh
+    if (!cached) {
+      this.emitAgentFact(agentId); // config-only edit still updates AgentFact
+      return;
+    }
 
     // 0. Project change forces a rebuild. Project root affects cwd, scope
     // guard, projectContext (which injects AGENTS.md into system prompt),
@@ -573,15 +599,23 @@ export class AgentManager {
 
     // 4. Refresh stored entry snapshot so subsequent reads see latest config
     cached.entry = entry;
+
+    this.emitAgentFact(agentId);
   }
 
   /** Switch active agent */
   switchAgent(agentId: string): void {
     const entry = this.config.getAgent(agentId);
     if (!entry) throw new Error(`Agent "${agentId}" not found`);
+    const prevActive = this.activeAgentId;
     this.activeAgentId = agentId;
     // Persist selection so restart doesn't drop the active agent/session list.
     this.config.update({ defaultAgent: agentId });
+    // Both the previous active and the new active agent change their
+    // isActive field — emit facts for both so the UI toggles in a
+    // single round-trip.
+    if (prevActive && prevActive !== agentId) this.emitAgentFact(prevActive);
+    this.emitAgentFact(agentId);
   }
 
   /**
@@ -611,6 +645,38 @@ export class AgentManager {
       const cached = this.agents.get(this.activeAgentId);
       if (cached) cached.entry = entry;
     }
+    this.emitAgentFact(this.activeAgentId);
+  }
+
+  // ----- Fact bus helpers -----
+
+  /**
+   * Derive + emit an AgentFact for the given id. Call this after any
+   * mutation that changes fields visible in AgentFact (model, status,
+   * tools, disabledTools, isActive, project, etc.). Idempotent.
+   */
+  emitAgentFact(agentId: string): void {
+    const fact = deriveAgentFact(this, agentId);
+    this.factBus.emitAgent(agentId, fact);
+  }
+
+  /**
+   * Derive + emit a TeamFact for the given leader agent id. Returns early
+   * if no team exists for that id. Caller may pass a cached messageCount.
+   */
+  async emitTeamFact(leaderId: string, messageCount?: number): Promise<void> {
+    const team = this.teams.get(leaderId);
+    if (!team) {
+      this.factBus.emitTeam(leaderId, null);
+      return;
+    }
+    const fact = await deriveTeamFact(team, { messageCount });
+    this.factBus.emitTeam(leaderId, fact);
+  }
+
+  /** Live AgentInstance or undefined — used by fact derivers. */
+  getInstance(agentId: string): AgentInstance | undefined {
+    return this.agents.get(agentId);
   }
 
   /**

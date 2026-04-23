@@ -107,5 +107,5 @@ export type WsIncoming =
   | { type: 'session_cleared' }
   | { type: 'session_resumed'; sessionId: string; messages?: ChatMessage[] }
   | { type: 'session_compacted'; sessionId: string; tokensFreed: number; layersApplied: string[] }
-  | { type: 'config_changed'; scope?: string; id?: string }
+  | { type: 'fact_changed'; change: import('./facts/types').FactChange }
   | { type: 'interject_acked'; text: string };
