@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2, Network, List } from 'lucide-react';
+import AgentsGraph from './AgentsGraph';
 import { showToast } from './Toast';
 import { API } from '../api/paths';
 import { useAgentFacts } from '../facts/useFacts';
@@ -90,6 +91,7 @@ export default function AgentsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const [inspectData, setInspectData] = useState<Record<string, InspectRuntime | null>>({});
   const [inspectLoading, setInspectLoading] = useState<string | null>(null);
   const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '', project: '' });
@@ -208,17 +210,63 @@ export default function AgentsPage() {
     });
   };
 
+  // Graph mode hijacks the entire canvas; the list / editor UI below
+  // stays reachable by flipping the toggle. Clicking a graph node flips
+  // back to list with `expanded` preset so the user lands on the card.
+  if (viewMode === 'graph' && !creating && !editing) {
+    return (
+      <div className="flex-1 flex flex-col bg-white dark:bg-gray-900">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">🤖 Agents</h1>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setViewMode('graph')}
+                className={`px-2.5 py-1.5 text-xs flex items-center gap-1 ${viewMode === 'graph' ? 'bg-berry-600 text-white' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+              ><Network size={13} />Graph</button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`px-2.5 py-1.5 text-xs flex items-center gap-1 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800`}
+              ><List size={13} />List</button>
+            </div>
+            <button
+              onClick={() => { setCreating(true); setViewMode('list'); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
+              className="px-3 py-1.5 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-1.5 text-sm"
+            >
+              <Plus size={14} /> New Agent
+            </button>
+          </div>
+        </div>
+        <div className="flex-1">
+          <AgentsGraph onSelect={(id) => { setExpanded(id); setViewMode('list'); if (!inspectData[id]) void loadInspect(id); }} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto p-6 bg-white dark:bg-gray-900">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">🤖 Agents</h1>
-          <button
-            onClick={() => { setCreating(true); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
-            className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-2 transition-colors"
-          >
-            <Plus size={16} /> New Agent
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setViewMode('graph')}
+                className="px-2.5 py-1.5 text-xs flex items-center gap-1 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
+              ><Network size={13} />Graph</button>
+              <button
+                onClick={() => setViewMode('list')}
+                className="px-2.5 py-1.5 text-xs flex items-center gap-1 bg-berry-600 text-white"
+              ><List size={13} />List</button>
+            </div>
+            <button
+              onClick={() => { setCreating(true); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
+              className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-2 transition-colors"
+            >
+              <Plus size={16} /> New Agent
+            </button>
+          </div>
         </div>
 
         {/* Create form */}
