@@ -15,7 +15,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Plus, Trash2, Check, Server, Moon, Sun, Pencil, X, Key, ExternalLink,
+  Plus, Trash2, Check, Server, Pencil, X, Key, ExternalLink,
   Layers, Zap, RefreshCw, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { showToast } from './Toast';
@@ -87,10 +87,6 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<TabId>('providers');
   const [config, setConfig] = useState<ConfigPayload | null>(null);
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
-  const [darkMode, setDarkMode] = useState(() =>
-    document.documentElement.classList.contains('dark'),
-  );
-
   const refresh = useCallback(async () => {
     const [cfg, presetRes] = await Promise.all([
       fetch(API.config).then(r => r.json()),
@@ -102,34 +98,9 @@ export default function SettingsPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    document.documentElement.classList.toggle('dark', next);
-    localStorage.setItem('berry-claw-dark', next ? '1' : '0');
-  };
-
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-gray-50 dark:bg-gray-900">
       <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-6">Settings</h1>
-
-      {/* Appearance */}
-      <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              {darkMode ? <Moon size={20} /> : <Sun size={20} />} Appearance
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Toggle dark mode</p>
-          </div>
-          <button
-            onClick={toggleDarkMode}
-            className={`relative w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-berry-600' : 'bg-gray-300'}`}
-          >
-            <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${darkMode ? 'translate-x-6' : 'translate-x-0.5'}`} />
-          </button>
-        </div>
-      </section>
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-4 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">

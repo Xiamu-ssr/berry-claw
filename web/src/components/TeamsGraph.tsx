@@ -7,7 +7,7 @@
  * a leader node triggers onSelect so the parent page can open the team
  * detail view.
  */
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -18,6 +18,8 @@ import {
   type Node,
   type Edge,
   type NodeProps,
+  useNodesState,
+  useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Crown, User, ListChecks } from 'lucide-react';
@@ -98,7 +100,7 @@ export default function TeamsGraph({ onLeaderSelect, onAgentSelect }: TeamsGraph
     return m;
   }, [agents]);
 
-  const { nodes, edges } = useMemo(() => {
+  const { nodes: baseNodes, edges: baseEdges } = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
     const TEAM_W = 280;
@@ -114,6 +116,7 @@ export default function TeamsGraph({ onLeaderSelect, onAgentSelect }: TeamsGraph
         type: 'leader',
         position: { x: centerX - 100, y: LEADER_Y },
         data: { team, leader: agentById.get(team.leaderId), onSelect: onLeaderSelect },
+        draggable: true,
       });
 
       const n = team.teammates.length;
@@ -129,6 +132,7 @@ export default function TeamsGraph({ onLeaderSelect, onAgentSelect }: TeamsGraph
             role: tm.role,
             onSelect: (id: string) => onAgentSelect?.(id) ?? onLeaderSelect(team.leaderId),
           },
+          draggable: true,
         });
         edges.push({
           id: `${leaderId}->${mateId}`,
@@ -141,6 +145,23 @@ export default function TeamsGraph({ onLeaderSelect, onAgentSelect }: TeamsGraph
 
     return { nodes, edges };
   }, [teams, agentById, onLeaderSelect, onAgentSelect]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(baseNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(baseEdges);
+
+  useEffect(() => {
+    setNodes((prev) => {
+      const prevPositions = new Map(prev.map((node) => [node.id, node.position]));
+      return baseNodes.map((node) => ({
+        ...node,
+        position: prevPositions.get(node.id) ?? node.position,
+      }));
+    });
+  }, [baseNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(baseEdges);
+  }, [baseEdges, setEdges]);
 
   const handleNodeClick = useCallback((_: unknown, node: Node) => {
     if (node.type === 'leader') onLeaderSelect((node.data as LeaderData).team.leaderId);
@@ -160,7 +181,10 @@ export default function TeamsGraph({ onLeaderSelect, onAgentSelect }: TeamsGraph
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        nodesDraggable
         fitView
         // Lean on fitView, but clamp the single-team zoom — otherwise a
         // lonely leader node gets magnified until its text blows up.

@@ -60,6 +60,8 @@ export interface AgentEntry {
   disabledTools?: string[];
   skillDirs?: string[];
   disabledSkills?: string[];
+  /** Unified reasoning effort level (provider-mapped). */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'max';
 
   /**
    * Team membership marker. When set, this agent is a teammate in the team
@@ -87,8 +89,7 @@ export interface AppConfig {
   defaultAgent: string;
 }
 
-const APP_DIR = join(homedir(), '.berry-claw');
-const CONFIG_PATH = join(APP_DIR, 'config.json');
+const DEFAULT_APP_DIR = join(homedir(), '.berry-claw');
 
 const EMPTY_CONFIG: AppConfig = {
   schemaVersion: 2,
@@ -99,19 +100,23 @@ const EMPTY_CONFIG: AppConfig = {
   defaultAgent: '',
 };
 
+export interface ConfigManagerOptions {
+  appDir?: string;
+}
+
 export class ConfigManager {
   private config: AppConfig;
   readonly appDir: string;
   readonly configPath: string;
 
-  constructor() {
-    this.appDir = APP_DIR;
-    this.configPath = CONFIG_PATH;
+  constructor(options: ConfigManagerOptions = {}) {
+    this.appDir = options.appDir ?? DEFAULT_APP_DIR;
+    this.configPath = join(this.appDir, 'config.json');
 
-    if (!existsSync(APP_DIR)) mkdirSync(APP_DIR, { recursive: true });
+    if (!existsSync(this.appDir)) mkdirSync(this.appDir, { recursive: true });
 
-    if (existsSync(CONFIG_PATH)) {
-      const raw = readFileSync(CONFIG_PATH, 'utf-8');
+    if (existsSync(this.configPath)) {
+      const raw = readFileSync(this.configPath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<AppConfig>;
       this.config = normalize(parsed);
     } else {
@@ -119,7 +124,7 @@ export class ConfigManager {
       this.save();
     }
 
-    const agentsDir = join(APP_DIR, 'agents');
+    const agentsDir = join(this.appDir, 'agents');
     if (!existsSync(agentsDir)) mkdirSync(agentsDir, { recursive: true });
   }
 
@@ -128,7 +133,7 @@ export class ConfigManager {
   get(): AppConfig { return structuredClone(this.config); }
 
   save(): void {
-    writeFileSync(CONFIG_PATH, JSON.stringify(this.config, null, 2), 'utf-8');
+    writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8');
   }
 
   update(patch: Partial<AppConfig>): void {

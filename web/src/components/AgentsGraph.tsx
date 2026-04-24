@@ -9,7 +9,7 @@
  * Data-wise this component is purely derived from FactStore. No fetches,
  * no local state beyond React Flow's own.
  */
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Background,
@@ -20,6 +20,8 @@ import {
   type Node,
   type Edge,
   type NodeProps,
+  useNodesState,
+  useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Folder, Bot } from 'lucide-react';
@@ -98,7 +100,7 @@ interface AgentsGraphProps {
 export default function AgentsGraph({ onSelect }: AgentsGraphProps) {
   const facts = useAgentFacts();
 
-  const { nodes, edges } = useMemo(() => {
+  const { nodes: baseNodes, edges: baseEdges } = useMemo(() => {
     // Group agents by project so leaders + teammates cluster visually.
     // Agents with no project go into a virtual "unassigned" lane.
     const byProject = new Map<string, AgentFact[]>();
@@ -156,6 +158,23 @@ export default function AgentsGraph({ onSelect }: AgentsGraphProps) {
     return { nodes, edges };
   }, [facts, onSelect]);
 
+  const [nodes, setNodes, onNodesChange] = useNodesState(baseNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(baseEdges);
+
+  useEffect(() => {
+    setNodes((prev) => {
+      const prevPositions = new Map(prev.map((node) => [node.id, node.position]));
+      return baseNodes.map((node) => ({
+        ...node,
+        position: prevPositions.get(node.id) ?? node.position,
+      }));
+    });
+  }, [baseNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(baseEdges);
+  }, [baseEdges, setEdges]);
+
   const handleNodeClick = useCallback((_: unknown, node: Node) => {
     if (node.type === 'agent') onSelect(node.id);
   }, [onSelect]);
@@ -166,7 +185,10 @@ export default function AgentsGraph({ onSelect }: AgentsGraphProps) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
+        nodesDraggable
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
         proOptions={{ hideAttribution: true }}

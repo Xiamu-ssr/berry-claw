@@ -17,17 +17,28 @@ export interface InferenceInfo {
   cost?: number;
 }
 
+export type ChatMessageStatus = 'pending' | 'streaming' | 'completed' | 'queued' | 'failed';
+export type ChatMessageDelivery = 'turn' | 'interject';
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
-  toolCalls?: Array<{ name: string; input: unknown; isError?: boolean }>;
+  /** Message lifecycle in the product shell, independent of SDK event-log durability. */
+  status?: ChatMessageStatus;
+  /** Whether this is a normal turn message or a same-turn interject side-channel. */
+  delivery?: ChatMessageDelivery;
+  /** Client-generated id used to reconcile optimistic UI bubbles with durable server state. */
+  requestId?: string;
+  toolCalls?: Array<{ name: string; input: unknown; isError?: boolean; result?: string }>;
   /** Per-inference rounds within this assistant turn */
   inferences?: InferenceInfo[];
   /** Total usage for the entire turn (sum of inferences) */
   usage?: { inputTokens: number; outputTokens: number };
   thinking?: string;
+  /** Multimodal blocks (text + image) for user messages that carry attachments */
+  blocks?: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mediaType: string }>;
 }
 
 export interface SessionState {
@@ -36,6 +47,8 @@ export interface SessionState {
   messages: ChatMessage[];
   createdAt: number;
   lastActiveAt: number;
+  /** The agent this session belongs to (for multi-agent UIs). */
+  agentId?: string;
 }
 
 /**
@@ -51,10 +64,15 @@ export class SessionManager {
     return this.activeSessionId;
   }
 
-  /** Create a new session (returns ID, actual Agent session created on first query) */
-  newSession(): string {
+  /** Create a new session. If sessionId is provided, records it as active immediately. */
+  newSession(sessionId?: string): SessionState {
+    if (sessionId) {
+      const state = this.getOrCreateState(sessionId);
+      this.activeSessionId = sessionId;
+      return state;
+    }
     this.activeSessionId = undefined;
-    return '';  // Agent will create the session on first query
+    return this.getOrCreateState('');
   }
 
   /** Switch to an existing session */
@@ -78,16 +96,31 @@ export class SessionManager {
   addUserMessage(
     sessionId: string,
     prompt: string | import('@berry-agent/core').ContentBlock[],
+    options?: {
+      status?: ChatMessageStatus;
+      delivery?: ChatMessageDelivery;
+      requestId?: string;
+    },
   ): ChatMessage {
     const state = this.getOrCreateState(sessionId);
-    const textPreview = typeof prompt === 'string'
-      ? prompt
-      : prompt.map((b) => b.type === 'text' ? b.text : `[${b.type}]`).join(' ').trim();
+    const isBlocks = typeof prompt !== 'string';
+    const textPreview = isBlocks
+      ? prompt.map((b) => b.type === 'text' ? b.text : `[${b.type}]`).join(' ').trim()
+      : prompt;
+    const blocks = isBlocks
+      ? prompt.filter((b): b is { type: 'text'; text: string } | { type: 'image'; data: string; mediaType: string } =>
+          b.type === 'text' || b.type === 'image',
+        )
+      : undefined;
     const msg: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       role: 'user',
       content: textPreview || '(media)',
       timestamp: Date.now(),
+      status: options?.status ?? 'completed',
+      delivery: options?.delivery ?? 'turn',
+      requestId: options?.requestId,
+      blocks,
     };
     state.messages.push(msg);
     state.lastActiveAt = Date.now();
@@ -106,6 +139,11 @@ export class SessionManager {
     usage?: ChatMessage['usage'],
     thinking?: string,
     inferences?: InferenceInfo[],
+    options?: {
+      status?: ChatMessageStatus;
+      delivery?: ChatMessageDelivery;
+      requestId?: string;
+    },
   ): ChatMessage {
     const state = this.getOrCreateState(sessionId);
     const msg: ChatMessage = {
@@ -113,6 +151,9 @@ export class SessionManager {
       role: 'assistant',
       content,
       timestamp: Date.now(),
+      status: options?.status ?? 'completed',
+      delivery: options?.delivery ?? 'turn',
+      requestId: options?.requestId,
       toolCalls,
       usage,
       thinking: thinking || undefined,
@@ -127,6 +168,17 @@ export class SessionManager {
   /** Get a cached session state */
   getState(sessionId: string): SessionState | null {
     return this.sessions.get(sessionId) ?? null;
+  }
+
+  /** Patch a message in-place (used for pending → completed / failed transitions). */
+  updateMessage(sessionId: string, messageId: string, patch: Partial<ChatMessage>): ChatMessage | null {
+    const state = this.sessions.get(sessionId);
+    if (!state) return null;
+    const idx = state.messages.findIndex((msg) => msg.id === messageId);
+    if (idx < 0) return null;
+    state.messages[idx] = { ...state.messages[idx], ...patch };
+    state.lastActiveAt = Date.now();
+    return state.messages[idx] ?? null;
   }
 
   /** Upsert a hydrated/persisted session state */

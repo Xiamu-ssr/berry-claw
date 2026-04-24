@@ -5,7 +5,7 @@ import {
   Agent,
   DefaultCredentialStore,
   FileSessionStore,
-  defaultCredentialFilePath,
+  estimateTokens,
 } from '@berry-agent/core';
 import {
   TOOL_BROWSER,
@@ -28,11 +28,12 @@ import type {
   ContentBlock,
   ToolUseContent,
   ToolResultContent,
+  Middleware,
 } from '@berry-agent/core';
 import { compositeGuard, denyList } from '@berry-agent/safe';
 import type { ToolGuard } from '@berry-agent/core';
 import { resolve as resolvePath, relative as relativePath } from 'node:path';
-import { createObserver, calculateCost, type Observer, type ModelPricing } from '@berry-agent/observe';
+import { createObserver, createCollector, calculateCost, type Observer, type ModelPricing } from '@berry-agent/observe';
 import {
   createAllTools,
   createBrowserTool,
@@ -41,9 +42,9 @@ import {
   WEB_SEARCH_CREDENTIAL_KEYS,
   type WebSearchProviderName,
 } from '@berry-agent/tools-common';
-import { SYSTEM_PROMPT } from '../agent/prompt.js';
 import { ConfigManager, type AgentEntry } from './config-manager.js';
 import { SessionManager, type ChatMessage } from './session-manager.js';
+import { buildBaseSystemPrompt, listPromptBlocks, type PromptBlockInfo } from './prompt-blocks.js';
 import { join } from 'node:path';
 import { createFileMemoryProvider } from '@berry-agent/memory-file';
 import { selectProvider } from '@berry-agent/models';
@@ -158,6 +159,11 @@ export interface AgentInstance {
   entry: AgentEntry;
 }
 
+export interface AgentManagerOptions {
+  appDir?: string;
+  credentialFilePath?: string;
+}
+
 export class AgentManager {
   readonly config: ConfigManager;
   readonly sessions: SessionManager;
@@ -181,12 +187,18 @@ export class AgentManager {
   private pendingRehydrates = new Map<string, Promise<void>>();
   private activeAgentId: string;
   private pricingOverrides: Record<string, ModelPricing>;
+  /**
+   * Per-agent observe collectors. Each agent gets its own collector so that
+   * agentId is correctly stamped into sessions / turns / llm_calls.
+   * The database connection is shared (all collectors write to the same DB).
+   */
+  private agentCollectors = new Map<string, { middleware: Middleware; eventListener: (event: AgentEvent) => void }>();
 
-  constructor() {
-    this.config = new ConfigManager();
+  constructor(options: AgentManagerOptions = {}) {
+    this.config = new ConfigManager({ appDir: options.appDir });
     this.sessions = new SessionManager();
     this.credentials = new DefaultCredentialStore({
-      filePath: defaultCredentialFilePath(),
+      filePath: options.credentialFilePath ?? join(this.config.appDir, 'credentials.json'),
     });
     // Model name aliases: zenmux proxies use "provider/model" naming, map to standard pricing
     const sonnet4: ModelPricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
@@ -251,10 +263,7 @@ export class AgentManager {
     // Build system prompt — inject environment context so the agent knows
     // its own workspace and project bindings. This is the single source of
     // truth for "where am I operating?" introspection.
-    const envContext = buildEnvContext(workspace, projectRoot);
-    const systemPrompt = entry.systemPrompt
-      ? [envContext, entry.systemPrompt]
-      : [envContext, ...SYSTEM_PROMPT];
+    const systemPrompt = buildBaseSystemPrompt(entry, workspace);
 
     // Build tools based on config
     const tools = buildTools(workspace, entry, this.credentials);
@@ -279,8 +288,20 @@ export class AgentManager {
     const allowedRoots = projectRoot ? [projectRoot, workspace] : [workspace];
     const multiRootScope = buildMultiRootScope(allowedRoots);
 
+    // Per-agent observe collector: each agent gets its own collector so that
+    // agentId is correctly stamped into sessions / turns / llm_calls. The DB
+    // connection is shared (same file), but the mutable state (currentSessionId,
+    // currentTurnId, pendingApiCalls, etc.) is isolated per agent.
+    const collector = createCollector({
+      db: this.observer.db,
+      pricingOverrides: this.pricingOverrides,
+      agentId: id,
+    });
+    this.agentCollectors.set(id, collector);
+
     const agent = new Agent({
       provider: providerInput,
+      reasoningEffort: entry.reasoningEffort,
       systemPrompt,
       tools,
       cwd: projectRoot ?? workspace,
@@ -293,9 +314,9 @@ export class AgentManager {
         multiRootScope,
         denyList(['rm -rf /', 'rm -rf ~', 'DROP TABLE', 'DROP DATABASE']),
       ),
-      middleware: [this.observer.middleware],
+      middleware: [collector.middleware],
       onEvent: (event) => {
-        this.observer.onEvent(event);
+        collector.eventListener(event);
         // Status changes are high-signal UI updates — flow them through
         // the FactBus so every subscriber (AgentsPage / ChatHeader / etc.)
         // refreshes off the same event.
@@ -587,13 +608,26 @@ export class AgentManager {
     //    first provider in the new model's binding. A full resolver swap on
     //    hot reload would require tearing down the Agent instance, which the
     //    reload path explicitly avoids.
+    let providerSwitched = false;
     try {
       if (entry.model && entry.model !== cached.entry.model) {
         const nextCfg = resolveStaticProviderConfig(entry.model, this.config);
-        if (nextCfg) cached.agent.switchProvider(nextCfg);
+        if (nextCfg) {
+          cached.agent.switchProvider(nextCfg);
+          providerSwitched = true;
+        }
       }
     } catch (err) {
       console.warn(`[reload] model switch failed for ${agentId}:`, err);
+    }
+
+    // 2.5 Reasoning effort (if changed)
+    if (entry.reasoningEffort !== cached.entry.reasoningEffort) {
+      const currentProvider = cached.agent.currentProvider;
+      cached.agent.switchProvider({
+        ...currentProvider,
+        reasoningEffort: entry.reasoningEffort,
+      });
     }
 
     // 3. Allowed tools = (all registered) − disabledTools
@@ -688,6 +722,19 @@ export class AgentManager {
   }
 
   /**
+   * Create a new empty SDK session and sync it into SessionManager.
+   * Returns the created session state so callers can immediately use the real sessionId.
+   */
+  async createSession(agentId?: string): Promise<import('./session-manager.js').SessionState> {
+    const agent = this.getAgent(agentId);
+    const sdkSession = await agent.createSession();
+    const state = hydrateSessionState(sdkSession, agentId ?? this.activeAgentId);
+    this.sessions.upsertState(state);
+    this.sessions.switchSession(sdkSession.id);
+    return state;
+  }
+
+  /**
    * Load a persisted SDK session from disk and hydrate berry-claw's richer UI
    * session state cache. This makes sessions survive server restarts instead of
    * living only in SessionManager's in-memory map.
@@ -703,15 +750,14 @@ export class AgentManager {
     const session = await agent.getSession(sessionId);
     if (!session) return cached;
 
-    const state = hydrateSessionState(session);
+    const state = hydrateSessionState(session, agentId ?? this.activeAgentId);
     this.sessions.upsertState(state);
     return state;
   }
 
-  /** List all persisted sessions for the active/current agent, hydrated for UI. */
+  /** List all persisted sessions for an agent, hydrated for UI.
+   *  When agentId is omitted, uses the active agent. */
   async listSessionStates(agentId?: string): Promise<import('./session-manager.js').SessionState[]> {
-    // Without a configured agent there is no workspace to enumerate; this
-    // endpoint must stay safe so the UI can render an empty state.
     const targetId = agentId ?? this.activeAgentId;
     if (!targetId || !this.config.getAgent(targetId)) {
       return this.sessions.listSessions();
@@ -722,7 +768,7 @@ export class AgentManager {
     for (const id of ids) {
       await this.loadSessionState(id, targetId);
     }
-    return this.sessions.listSessions();
+    return this.sessions.listSessions().filter((s) => s.agentId === targetId);
   }
 
   /**
@@ -736,60 +782,105 @@ export class AgentManager {
    */
   async chat(
     prompt: string | import('@berry-agent/core').ContentBlock[],
-    options?: { sessionId?: string; agentId?: string; onEvent?: (event: AgentEvent) => void },
-  ): Promise<{ result: QueryResult; assistantMessage: ChatMessage }> {
+    options?: {
+      sessionId?: string;
+      agentId?: string;
+      requestId?: string;
+      onEvent?: (event: AgentEvent) => void;
+      onUserMessagePersisted?: (message: ChatMessage, sessionId: string) => void;
+    },
+  ): Promise<{ sessionId: string; userMessage: ChatMessage; result: QueryResult; assistantMessage: ChatMessage }> {
     const agent = this.getAgent(options?.agentId);
-    const sessionId = options?.sessionId ?? this.sessions.currentSessionId;
+    let sessionId = options?.sessionId ?? this.sessions.currentSessionId;
+
+    if (sessionId) {
+      const existing = this.sessions.getState(sessionId) ?? await this.loadSessionState(sessionId, options?.agentId);
+      if (!existing) throw new Error(`Session not found: ${sessionId}`);
+    } else {
+      const created = await agent.createSession();
+      sessionId = created.id;
+      this.sessions.upsertState(hydrateSessionState(created));
+    }
+
+    const userMessage = this.sessions.addUserMessage(sessionId, prompt, {
+      status: 'pending',
+      delivery: 'turn',
+      requestId: options?.requestId,
+    });
+    options?.onUserMessagePersisted?.(userMessage, sessionId);
 
     const toolCalls: ChatMessage['toolCalls'] = [];
     let streamText = '';
     let thinkingText = '';
     const inferences: import('./session-manager.js').InferenceInfo[] = [];
 
-    const result = await agent.query(prompt, {
-      resume: sessionId,
-      stream: true,
-      onEvent: (event) => {
-        options?.onEvent?.(event);
-        if (event.type === 'text_delta') streamText += event.text;
-        else if (event.type === 'thinking_delta') thinkingText += event.thinking;
-        else if (event.type === 'tool_call') toolCalls.push({ name: event.name, input: event.input });
-        else if (event.type === 'tool_result') {
-          const last = [...toolCalls].reverse().find(t => t.name === event.name);
-          if (last) last.isError = event.isError;
-        } else if (event.type === 'api_response') {
-          const cost = calculateCost(
-            event.model,
-            event.usage.inputTokens,
-            event.usage.outputTokens,
-            event.usage.cacheReadTokens ?? 0,
-            event.usage.cacheWriteTokens ?? 0,
-            this.pricingOverrides,
-          );
-          inferences.push({
-            model: event.model,
-            inputTokens: event.usage.inputTokens,
-            outputTokens: event.usage.outputTokens,
-            cacheWriteTokens: event.usage.cacheWriteTokens,
-            cacheReadTokens: event.usage.cacheReadTokens,
-            stopReason: event.stopReason,
-            cost: cost.totalCost,
-          });
+    try {
+      const result = await agent.query(prompt, {
+        resume: sessionId,
+        stream: true,
+        onEvent: (event) => {
+          if (event.type === 'api_response') {
+            const cost = calculateCost(
+              event.model,
+              event.usage.inputTokens,
+              event.usage.outputTokens,
+              event.usage.cacheReadTokens ?? 0,
+              event.usage.cacheWriteTokens ?? 0,
+              this.pricingOverrides,
+            );
+            inferences.push({
+              model: event.model,
+              inputTokens: event.usage.inputTokens,
+              outputTokens: event.usage.outputTokens,
+              cacheWriteTokens: event.usage.cacheWriteTokens,
+              cacheReadTokens: event.usage.cacheReadTokens,
+              stopReason: event.stopReason,
+              cost: cost.totalCost,
+            });
+            options?.onEvent?.({ ...event, cost: cost.totalCost } as any);
+          } else {
+            options?.onEvent?.(event);
+            if (event.type === 'text_delta') streamText += event.text;
+            else if (event.type === 'thinking_delta') thinkingText += event.thinking;
+            else if (event.type === 'tool_call') toolCalls.push({ name: event.name, input: event.input });
+            else if (event.type === 'tool_result') {
+              const last = [...toolCalls].reverse().find(t => t.name === event.name);
+              if (last) last.isError = event.isError;
+            }
+          }
+        },
+      });
+
+      this.sessions.updateMessage(sessionId, userMessage.id, { status: 'completed' });
+      const assistantMessage = this.sessions.addAssistantMessage(
+        result.sessionId,
+        result.text,
+        toolCalls.length > 0 ? toolCalls : undefined,
+        { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens },
+        thinkingText || undefined,
+        inferences,
+        { status: 'completed', delivery: 'turn', requestId: options?.requestId },
+      );
+
+      // Hydrate tool result content from the SDK session so UI can show tool output
+      try {
+        const sdkSession = await agent.getSession(result.sessionId);
+        if (sdkSession) {
+          const hydrated = hydrateChatMessages(sdkSession.messages);
+          const lastAssistant = [...hydrated].reverse().find((m) => m.role === 'assistant');
+          if (lastAssistant?.toolCalls && lastAssistant.toolCalls.length > 0) {
+            this.sessions.updateMessage(sessionId, assistantMessage.id, { toolCalls: lastAssistant.toolCalls });
+          }
         }
-      },
-    });
+      } catch {
+        // Ignore hydration errors — the message is already stored with basic tool info
+      }
 
-    this.sessions.addUserMessage(result.sessionId, prompt);
-    const assistantMessage = this.sessions.addAssistantMessage(
-      result.sessionId,
-      result.text,
-      toolCalls.length > 0 ? toolCalls : undefined,
-      { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens },
-      thinkingText || undefined,
-      inferences,
-    );
-
-    return { result, assistantMessage };
+      return { sessionId, userMessage, result, assistantMessage };
+    } catch (err) {
+      this.sessions.updateMessage(sessionId, userMessage.id, { status: 'failed' });
+      throw err;
+    }
   }
 
   /** Introspect an agent */
@@ -809,11 +900,44 @@ export class AgentManager {
     };
   }
 
+  /** Structured prompt block registry for inspect/edit UIs. */
+  async describePromptBlocks(agentId?: string): Promise<PromptBlockInfo[]> {
+    const id = agentId ?? this.activeAgentId;
+    const entry = this.config.getAgent(id);
+    if (!entry) throw new Error(`Agent "${id}" not found`);
+    const runtime = this.agents.get(id)?.agent.inspect() ?? null;
+    const workspace = entry.workspace ?? this.config.agentWorkspace(id);
+    return listPromptBlocks({
+      agentId: id,
+      entry,
+      workspace,
+      runtimeSkills: runtime?.skills ?? [],
+    });
+  }
+
   /** Status snapshot for an agent, or null if the instance isn't created yet. */
   getAgentStatus(agentId: string): { status: string; detail?: string } | null {
     const inst = this.agents.get(agentId);
     if (!inst) return null;
     return { status: inst.agent.status, detail: inst.agent.statusDetail };
+  }
+
+  /**
+   * Return the current context token size and window for the active session
+   * of the given agent. Falls back to 0 / default window when no session is
+   * active or the agent isn't instantiated yet.
+   */
+  async getAgentContextSize(agentId?: string): Promise<{ current: number; window: number } | null> {
+    const id = agentId ?? this.activeAgentId;
+    const instance = this.agents.get(id);
+    if (!instance) return null;
+    const ctxWindow = instance.agent.inspect().compaction?.contextWindow ?? 200_000;
+    const sessionId = this.sessions.currentSessionId;
+    if (!sessionId) return { current: 0, window: ctxWindow };
+    const session = await instance.agent.getSession(sessionId);
+    if (!session) return { current: 0, window: ctxWindow };
+    const current = estimateTokens(session.messages);
+    return { current, window: ctxWindow };
   }
 
   /**
@@ -846,29 +970,6 @@ export class AgentManager {
  * Agent instance; chooses the binding's first provider and returns null
  * when the spec can't be resolved.
  */
-/**
- * Build a concise environment-context block that tells the agent where it
- * is operating. This is prepended to the system prompt so the model knows
- * its workspace and project roots without relying on tool calls.
- *
- * The guard already enforces these roots; making them visible to the model
- * reduces "I don't know my project" confusion and "file_list denied" surprise.
- */
-function buildEnvContext(workspace: string, projectRoot?: string): string {
-  const lines = [
-    `<env>`,
-    `  workspace: ${workspace}`,
-  ];
-  if (projectRoot) {
-    lines.push(`  project: ${projectRoot}`);
-    lines.push(`  cwd: ${projectRoot}`);
-  } else {
-    lines.push(`  cwd: ${workspace}`);
-  }
-  lines.push(`</env>`);
-  return lines.join('\n');
-}
-
 function resolveStaticProviderConfig(
   spec: string,
   config: ConfigManager,
@@ -886,13 +987,14 @@ function resolveStaticProviderConfig(
   }
 }
 
-function hydrateSessionState(session: Session): import('./session-manager.js').SessionState {
+function hydrateSessionState(session: Session, agentId?: string): import('./session-manager.js').SessionState {
   return {
     id: session.id,
     title: deriveSessionTitle(session),
     messages: hydrateChatMessages(session.messages),
     createdAt: session.createdAt,
     lastActiveAt: session.lastAccessedAt,
+    agentId,
   };
 }
 
@@ -916,25 +1018,34 @@ function hydrateChatMessages(messages: Session['messages']): ChatMessage[] {
           role: 'user',
           content: msg.content,
           timestamp: msg.createdAt ?? Date.now(),
+          status: 'completed',
+          delivery: 'turn',
         });
         continue;
       }
 
-      // Synthetic tool_result carrier message — UI doesn't show it as a user turn.
+      // Multimodal user prompt (text + image blocks) or synthetic tool_result carrier
       const blocks = Array.isArray(msg.content) ? msg.content : [];
       const hasUserText = blocks.some(b => b.type === 'text');
-      if (!hasUserText) continue;
+      const hasImage = blocks.some(b => b.type === 'image');
+      if (!hasUserText && !hasImage) continue;
 
       const text = blocks
         .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
         .map(b => b.text)
         .join('\n');
-      if (text) {
+      const imageBlocks = blocks
+        .filter((b): b is Extract<ContentBlock, { type: 'image' }> => b.type === 'image')
+        .map(b => ({ type: 'image' as const, data: b.data, mediaType: b.mediaType }));
+      if (text || imageBlocks.length > 0) {
         out.push({
           id: `msg_${msg.createdAt}_${i}`,
           role: 'user',
-          content: text,
+          content: text || '(image)',
           timestamp: msg.createdAt ?? Date.now(),
+          status: 'completed',
+          delivery: 'turn',
+          blocks: imageBlocks.length > 0 ? imageBlocks : undefined,
         });
       }
       continue;
@@ -967,6 +1078,8 @@ function hydrateChatMessages(messages: Session['messages']): ChatMessage[] {
       role: 'assistant',
       content: text,
       timestamp: msg.createdAt ?? Date.now(),
+      status: 'completed',
+      delivery: 'turn',
       toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       thinking,
     });
@@ -988,9 +1101,13 @@ function hydrateToolCalls(blocks: ContentBlock[], nextMessage?: Session['message
     }
   }
 
-  return toolUses.map((toolUse) => ({
-    name: toolUse.name,
-    input: toolUse.input,
-    isError: resultById.get(toolUse.id)?.isError,
-  }));
+  return toolUses.map((toolUse) => {
+    const result = resultById.get(toolUse.id);
+    return {
+      name: toolUse.name,
+      input: toolUse.input,
+      isError: result?.isError,
+      result: result?.content,
+    };
+  });
 }

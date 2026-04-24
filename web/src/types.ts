@@ -40,24 +40,35 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  status?: 'pending' | 'streaming' | 'completed' | 'queued' | 'failed';
+  delivery?: 'turn' | 'interject';
+  requestId?: string;
   toolCalls?: ToolCallInfo[];
   thinking?: string;
   usage?: { inputTokens: number; outputTokens: number };
   inferences?: InferenceInfo[];
+  /** Multimodal blocks (text + image) for user messages that carry attachments */
+  blocks?: ContentBlock[];
 }
 
 export interface ToolCallInfo {
   name: string;
   input: unknown;
   isError?: boolean;
+  result?: string;
   expanded?: boolean;
 }
 
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mediaType: string };
+
 // WebSocket message types
 export type WsOutgoing =
-  | { type: 'chat'; prompt: string; sessionId?: string }
-  | { type: 'new_session' }
-  | { type: 'resume_session'; sessionId: string }
+  | { type: 'chat'; prompt: string | ContentBlock[]; sessionId?: string; requestId?: string; agentId?: string }
+  | { type: 'new_session'; agentId?: string }
+  | { type: 'switch_agent'; agentId: string }
+  | { type: 'resume_session'; sessionId: string; agentId?: string }
   | { type: 'interject'; text: string };
 
 export type AgentStatus =
@@ -80,6 +91,7 @@ export type RetryReason = 'stream_idle_timeout' | 'transient_error';
 
 export type WsIncoming =
   | { type: 'start' }
+  | { type: 'user_message_persisted'; sessionId: string; message: ChatMessage }
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
   | { type: 'tool_call'; name: string; input: unknown }
@@ -89,6 +101,7 @@ export type WsIncoming =
       model: string;
       usage: { inputTokens: number; outputTokens: number; cacheWriteTokens?: number; cacheReadTokens?: number };
       stopReason: string;
+      cost?: number;
     }
   | { type: 'api_call'; messages: number; tools: number }
   | { type: 'status_change'; status: AgentStatus; detail?: string }
@@ -103,9 +116,27 @@ export type WsIncoming =
       delayMs: number;
     }
   | { type: 'done'; sessionId: string; message: ChatMessage; usage: any; totalUsage: any; toolCalls: number }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; requestId?: string; sessionId?: string }
   | { type: 'session_cleared' }
+  | { type: 'session_created'; sessionId: string; messages?: ChatMessage[] }
   | { type: 'session_resumed'; sessionId: string; messages?: ChatMessage[] }
   | { type: 'session_compacted'; sessionId: string; tokensFreed: number; layersApplied: string[] }
-  | { type: 'fact_changed'; change: import('./facts/types').FactChange }
-  | { type: 'interject_acked'; text: string };
+  | {
+      type: 'compaction';
+      sessionId?: string;
+      tokensFreed: number;
+      layersApplied: string[];
+      contextBefore: number;
+      contextAfter: number;
+      contextWindow: number;
+      thresholdPct: number;
+    }
+  | ({ type: 'fact_changed' } & import('./facts/types').FactChange)
+  | {
+      type: 'interject_acked';
+      text: string;
+      status?: 'queued';
+      delivery?: 'interject';
+      behavior?: 'same_turn';
+    }
+  | { type: 'agent_switched'; agentId: string };

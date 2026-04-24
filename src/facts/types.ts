@@ -49,6 +49,8 @@ export interface AgentFact {
   skillDirs?: string[];
   /** Skill names explicitly disabled. */
   disabledSkills?: string[];
+  /** Unified reasoning effort level (provider-mapped). */
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'max';
 }
 
 /** A team's runtime + persisted shape, keyed by leader agent id. */

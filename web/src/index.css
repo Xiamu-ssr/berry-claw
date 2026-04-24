@@ -3,17 +3,12 @@
 @tailwind utilities;
 
 @layer components {
-  /**
-   * Shared form-control style used across Settings / Agents pages.
-   * Using a custom class here (instead of repeating 8 tailwind tokens on
-   * every input) keeps the forms visually consistent.
-   */
   .settings-input {
     @apply px-3 py-2 text-sm rounded-lg
-           bg-white dark:bg-gray-900
-           border border-gray-300 dark:border-gray-600
-           text-gray-800 dark:text-gray-100
-           placeholder:text-gray-400 dark:placeholder:text-gray-500
+           bg-[#1a1a1a]
+           border border-[#2a2a2a]
+           text-gray-200
+           placeholder:text-gray-500
            focus:outline-none focus:ring-2 focus:ring-berry-500 focus:border-transparent
            disabled:opacity-60 disabled:cursor-not-allowed
            transition-colors;
@@ -24,6 +19,8 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
+  background: #0d0d0d;
+  color: #e5e5e5;
 }
 
 /* Custom scrollbar */
@@ -34,22 +31,24 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #333;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: #555;
 }
 
 /* Markdown code blocks */
 .prose pre {
   border-radius: 8px;
   margin: 8px 0;
+  background: #1a1a1a !important;
 }
 
 .prose code {
   font-size: 0.875rem;
   font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  color: #e5e5e5;
 }
 
 /* GFM table styles */
@@ -60,39 +59,26 @@ body {
   font-size: 0.875rem;
 }
 .prose th, .prose td {
-  border: 1px solid #d1d5db;
+  border: 1px solid #2a2a2a;
   padding: 6px 12px;
   text-align: left;
 }
 .prose th {
-  background: #f3f4f6;
+  background: #1a1a1a;
   font-weight: 600;
+  color: #e5e5e5;
+}
+.prose td {
+  color: #ccc;
 }
 
 /* Links in markdown */
 .prose a {
-  color: #4f46e5;
+  color: #818cf8;
   text-decoration: underline;
 }
 .prose a:hover {
-  color: #4338ca;
-}
-
-/* Dark mode table overrides */
-.dark .prose th {
-  background: #1f2937;
-  color: #e5e7eb;
-}
-.dark .prose th, .dark .prose td {
-  border-color: #4b5563;
-}
-
-/* Dark mode scrollbar */
-.dark ::-webkit-scrollbar-thumb {
-  background: #4b5563;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  color: #a5b4fc;
 }
 
 /* Toast animation */

@@ -51,6 +51,10 @@ export const API = {
     `/api/agents/${encodeURIComponent(id)}/activate`,
   agentInspect: (id: string) =>
     `/api/agents/${encodeURIComponent(id)}/inspect`,
+  agentContextSize: (id: string) =>
+    `/api/agents/${encodeURIComponent(id)}/context-size`,
+  agentPromptBlock: (id: string, blockId: string) =>
+    `/api/agents/${encodeURIComponent(id)}/prompt-blocks/${encodeURIComponent(blockId)}`,
   agentMemory: (id: string) =>
     `/api/agents/${encodeURIComponent(id)}/memory`,
   agentProjectKnowledge: (id: string) =>

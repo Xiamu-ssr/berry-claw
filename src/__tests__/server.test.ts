@@ -9,11 +9,13 @@ import { startServer } from '../server.js';
 import type { Server } from 'node:http';
 
 let server: Server;
+let testAppDir: string;
 const PORT = 43210;  // Use unusual port to avoid conflicts
 const BASE = `http://localhost:${PORT}`;
 
 beforeAll(async () => {
-  const result = startServer(PORT);
+  testAppDir = await mkdtemp(join(tmpdir(), 'berry-claw-server-'));
+  const result = startServer(PORT, { appDir: testAppDir });
   server = result.server;
   // Wait for server to be ready
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -21,6 +23,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await rm(testAppDir, { recursive: true, force: true });
 });
 
 describe('Config API (v2 schema: provider instances + models + tiers)', () => {

@@ -34,9 +34,11 @@ export async function runSetup(): Promise<void> {
       configPath,
       JSON.stringify(
         {
-          providers: {},
+          schemaVersion: 2,
+          providerInstances: {},
+          models: {},
+          tiers: {},
           agents: {},
-          defaultModel: '',
           defaultAgent: '',
         },
         null,

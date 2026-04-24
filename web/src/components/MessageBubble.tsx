@@ -12,6 +12,12 @@ interface MessageBubbleProps {
 
 export default function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const isInterject = message.delivery === 'interject';
+  const statusLabel =
+    message.status === 'pending' ? 'sending' :
+    message.status === 'queued' ? 'queued' :
+    message.status === 'failed' ? 'failed' :
+    undefined;
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
@@ -35,12 +41,37 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         <div
           className={`rounded-2xl px-4 py-3 ${
             isUser
-              ? 'bg-berry-600 text-white'
+              ? isInterject
+                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 border border-amber-200 dark:border-amber-800'
+                : message.status === 'failed'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-berry-600 text-white'
               : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-          }`}
+          } ${message.status === 'pending' ? 'opacity-80' : ''}`}
         >
           {isUser ? (
-            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            <div className="space-y-2">
+              {message.blocks && message.blocks.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {message.blocks.map((block, idx) => {
+                    if (block.type === 'image') {
+                      return (
+                        <img
+                          key={idx}
+                          src={`data:${block.mediaType};base64,${block.data}`}
+                          alt="attachment"
+                          className="max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                        />
+                      );
+                    }
+                    return null;
+                  })}
+                </div>
+              )}
+              {message.content !== '(image)' && (
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              )}
+            </div>
           ) : (
             <div className="text-sm prose prose-sm max-w-none prose-pre:p-0 prose-pre:m-0 prose-pre:bg-transparent dark:prose-invert">
               <ReactMarkdown
@@ -70,6 +101,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         {isUser && (
           <div className="text-xs text-gray-400 mt-1 text-right mr-1">
             YOU · {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {statusLabel && ` · ${statusLabel}`}
           </div>
         )}
 

@@ -3,15 +3,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-let testHome: string;
-let previousHome: string | undefined;
+let testAppDir: string;
 const scrubbedEnvKeys = ['TAVILY_API_KEY', 'BRAVE_API_KEY', 'SERPAPI_API_KEY'];
 const scrubbedEnvSnapshot: Record<string, string | undefined> = {};
 
 beforeEach(async () => {
-  testHome = await mkdtemp(join(tmpdir(), 'berry-claw-agent-manager-'));
-  previousHome = process.env.HOME;
-  process.env.HOME = testHome;
+  testAppDir = await mkdtemp(join(tmpdir(), 'berry-claw-agent-manager-'));
   for (const k of scrubbedEnvKeys) {
     scrubbedEnvSnapshot[k] = process.env[k];
     delete process.env[k];
@@ -21,18 +18,17 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.resetModules();
-  if (previousHome === undefined) delete process.env.HOME;
-  else process.env.HOME = previousHome;
   for (const k of scrubbedEnvKeys) {
     if (scrubbedEnvSnapshot[k] !== undefined) process.env[k] = scrubbedEnvSnapshot[k];
+    else delete process.env[k];
   }
-  await rm(testHome, { recursive: true, force: true });
+  await rm(testAppDir, { recursive: true, force: true });
 });
 
 async function createManager(agentTools?: string[]) {
   const { AgentManager } = await import('../engine/agent-manager.js');
   const { RAW_PRESET_ID } = await import('@berry-agent/models');
-  const manager = new AgentManager();
+  const manager = new AgentManager({ appDir: testAppDir });
 
   // v2 schema: Layer 1 (provider instance) + Layer 2 (model binding).
   manager.config.setProviderInstance('test-provider', {

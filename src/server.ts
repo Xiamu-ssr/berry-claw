@@ -25,8 +25,12 @@ function maskKey(key: string): string {
   return key.slice(0, 6) + '•'.repeat(8) + key.slice(-3);
 }
 
-export function startServer(port: number) {
-  const manager = new AgentManager();
+export interface StartServerOptions {
+  appDir?: string;
+}
+
+export function startServer(port: number, options: StartServerOptions = {}) {
+  const manager = new AgentManager({ appDir: options.appDir });
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -315,6 +319,17 @@ export function startServer(port: number) {
     res.json({ statuses: out });
   });
 
+  /** Current context token size for the active session of an agent */
+  app.get('/api/agents/:id/context-size', async (req, res) => {
+    try {
+      const size = await manager.getAgentContextSize(req.params.id);
+      if (!size) return res.status(404).json({ error: 'Agent not found or not initialized' });
+      res.json(size);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   /** Create/update agent */
   app.put('/api/agents/:id', (req, res) => {
     const { name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills } = req.body;
@@ -444,9 +459,10 @@ export function startServer(port: number) {
   });
 
   /** Inspect agent (system prompt, tools, skills, provider) */
-  app.get('/api/agents/:id/inspect', (req, res) => {
+  app.get('/api/agents/:id/inspect', async (req, res) => {
     try {
       const info = manager.inspectAgent(req.params.id);
+      const promptBlocks = await manager.describePromptBlocks(req.params.id);
       const runtime = info.runtime
         ? {
             ...info.runtime,
@@ -454,11 +470,46 @@ export function startServer(port: number) {
               ...t,
               group: getToolGroup(t.name),
             })),
+            promptBlocks,
           }
-        : null;
+        : { promptBlocks };
       res.json({ ...info, runtime });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
+    }
+  });
+
+  /** Edit a prompt block at its source (config custom prompt / workspace AGENT.md). */
+  app.put('/api/agents/:id/prompt-blocks/:blockId', async (req, res) => {
+    const entry = manager.config.getAgent(req.params.id);
+    if (!entry) return res.status(404).json({ error: 'Agent not found' });
+    const content = typeof req.body?.content === 'string' ? req.body.content : '';
+
+    try {
+      switch (req.params.blockId) {
+        case 'custom_prompt': {
+          manager.config.setAgent(req.params.id, {
+            ...entry,
+            systemPrompt: content.trim() ? content : undefined,
+          });
+          manager.reloadAgent(req.params.id);
+          break;
+        }
+        case 'workspace_agent_md': {
+          const { writeFile } = await import('node:fs/promises');
+          const workspace = entry.workspace ?? manager.config.agentWorkspace(req.params.id);
+          await writeFile(join(workspace, 'AGENT.md'), content, 'utf-8');
+          manager.reloadAgent(req.params.id);
+          break;
+        }
+        default:
+          return res.status(400).json({ error: `Prompt block "${req.params.blockId}" is read-only or unknown` });
+      }
+
+      const promptBlocks = await manager.describePromptBlocks(req.params.id);
+      res.json({ ok: true, promptBlocks });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -520,22 +571,11 @@ export function startServer(port: number) {
   // Session API
   // ============================
 
-  /** List sessions — 1 agent 1 session: returns at most the current agent's active session. */
-  app.get('/api/sessions', async (_req, res) => {
-    const sessionId = manager.sessions.currentSessionId;
-    if (!sessionId) {
-      return res.json({ sessions: [] });
-    }
-    const state = manager.sessions.getState(sessionId);
-    if (state) {
-      return res.json({ sessions: [state] });
-    }
-    // Try to hydrate from agent store
-    try {
-      const hydrated = await manager.loadSessionState(sessionId);
-      if (hydrated) return res.json({ sessions: [hydrated] });
-    } catch { /* ignore */ }
-    return res.json({ sessions: [] });
+  /** List sessions for an agent (or active agent if no agentId param). */
+  app.get('/api/sessions', async (req, res) => {
+    const agentId = req.query.agentId as string | undefined;
+    const states = await manager.listSessionStates(agentId);
+    res.json({ sessions: states });
   });
 
   /** Get session detail + messages */
@@ -608,35 +648,37 @@ export function startServer(port: number) {
         switch (msg.type) {
           case 'chat': {
             // Two shapes accepted:
-            //   { type:'chat', prompt:'hi', sessionId }                 — plain text
-            //   { type:'chat', prompt:[{type:'text',...},{type:'image',data,mediaType}], sessionId }
+            //   { type:'chat', prompt:'hi', sessionId, agentId }                 — plain text
+            //   { type:'chat', prompt:[{type:'text',...},{type:'image',data,mediaType}], sessionId, agentId }
             //     — multimodal turn; blocks pass straight through to Agent.query().
             const payload = msg.prompt;
-            await handleChat(ws, manager, payload, msg.sessionId);
+            await handleChat(ws, manager, payload, msg.sessionId, msg.requestId, msg.agentId);
             break;
           }
       case 'new_session': {
         try {
-          const agent = manager.getAgent();
-          const sessionId = manager.sessions.currentSessionId;
-          if (!sessionId) {
-            ws.send(JSON.stringify({ type: 'error', message: 'No active session to compact.' }));
-            break;
-          }
-          const result = await agent.compactSession(sessionId, { reason: 'user_request' });
+          const state = await manager.createSession(msg.agentId);
           ws.send(JSON.stringify({
-            type: 'session_compacted',
-            sessionId,
-            tokensFreed: result.tokensFreed,
-            layersApplied: result.layersApplied,
+            type: 'session_created',
+            sessionId: state.id,
+            messages: state.messages,
           }));
         } catch (err: any) {
           ws.send(JSON.stringify({ type: 'error', message: err.message }));
         }
         break;
       }
+          case 'switch_agent': {
+            try {
+              manager.switchAgent(msg.agentId);
+              ws.send(JSON.stringify({ type: 'agent_switched', agentId: msg.agentId }));
+            } catch (err: any) {
+              ws.send(JSON.stringify({ type: 'error', message: err.message }));
+            }
+            break;
+          }
           case 'resume_session': {
-            const hydrated = await manager.loadSessionState(msg.sessionId);
+            const hydrated = await manager.loadSessionState(msg.sessionId, msg.agentId);
             const state = hydrated ?? manager.sessions.switchSession(msg.sessionId);
             ws.send(JSON.stringify({
               type: 'session_resumed',
@@ -661,7 +703,13 @@ export function startServer(port: number) {
             }
             try {
               manager.getAgent().interject(text);
-              ws.send(JSON.stringify({ type: 'interject_acked', text }));
+              ws.send(JSON.stringify({
+                type: 'interject_acked',
+                text,
+                status: 'queued',
+                delivery: 'interject',
+                behavior: 'same_turn',
+              }));
             } catch (err: any) {
               ws.send(JSON.stringify({ type: 'error', message: err.message }));
             }
@@ -698,18 +746,33 @@ async function handleChat(
   manager: AgentManager,
   prompt: string | import('@berry-agent/core').ContentBlock[],
   sessionId?: string,
+  requestId?: string,
+  agentId?: string,
 ) {
   // Reject chat if no agent is configured
-  if (!manager.activeAgent || !manager.config.getAgent(manager.activeAgent)) {
+  const targetAgentId = agentId ?? manager.activeAgent;
+  if (!targetAgentId || !manager.config.getAgent(targetAgentId)) {
     ws.send(JSON.stringify({ type: 'error', message: 'No agent configured. Create an agent first.' }));
     return;
   }
 
   ws.send(JSON.stringify({ type: 'start' }));
 
+  let resolvedSessionId = sessionId;
+
   try {
     const { result, assistantMessage } = await manager.chat(prompt, {
       sessionId,
+      requestId,
+      agentId: targetAgentId,
+      onUserMessagePersisted: (message, createdSessionId) => {
+        resolvedSessionId = createdSessionId;
+        ws.send(JSON.stringify({
+          type: 'user_message_persisted',
+          sessionId: createdSessionId,
+          message,
+        }));
+      },
       onEvent: (event: AgentEvent) => {
         switch (event.type) {
           case 'text_delta':
@@ -723,6 +786,18 @@ async function handleChat(
             break;
           case 'tool_result':
             ws.send(JSON.stringify({ type: 'tool_result', name: event.name, isError: event.isError }));
+            break;
+          case 'compaction':
+            ws.send(JSON.stringify({
+              type: 'compaction',
+              sessionId: resolvedSessionId ?? sessionId,
+              tokensFreed: event.tokensFreed,
+              layersApplied: event.layersApplied,
+              contextBefore: event.contextBefore,
+              contextAfter: event.contextAfter,
+              contextWindow: event.contextWindow,
+              thresholdPct: event.thresholdPct,
+            }));
             break;
           case 'status_change':
             ws.send(JSON.stringify({ type: 'status_change', agentId: manager.activeAgent, status: event.status, detail: event.detail }));
@@ -752,6 +827,7 @@ async function handleChat(
               model: event.model,
               usage: event.usage,
               stopReason: event.stopReason,
+              cost: (event as any).cost,
             }));
             break;
         }
@@ -767,6 +843,11 @@ async function handleChat(
       toolCalls: result.toolCalls,
     }));
   } catch (err: any) {
-    ws.send(JSON.stringify({ type: 'error', message: err.message }));
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: err.message,
+      requestId,
+      sessionId: resolvedSessionId,
+    }));
   }
 }

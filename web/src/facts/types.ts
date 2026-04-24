@@ -25,6 +25,7 @@ export interface AgentFact {
   disabledTools?: string[];
   skillDirs?: string[];
   disabledSkills?: string[];
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'max';
 }
 
 export interface TeamFact {

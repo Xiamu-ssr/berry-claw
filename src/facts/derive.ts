@@ -46,6 +46,7 @@ export function deriveAgentFact(
     disabledTools: entry.disabledTools,
     skillDirs: entry.skillDirs,
     disabledSkills: entry.disabledSkills,
+    reasoningEffort: entry.reasoningEffort,
   };
 }
 

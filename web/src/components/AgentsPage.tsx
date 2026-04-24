@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Play, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2, Network, List } from 'lucide-react';
+import { Plus, Trash2, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2, Network, List, BarChart3, DollarSign, MessageSquare, Terminal, Zap } from 'lucide-react';
 import AgentsGraph from './AgentsGraph';
 import MemoryPanel from './MemoryPanel';
 import { showToast } from './Toast';
@@ -37,10 +37,25 @@ interface SkillMeta {
   dir: string;
 }
 
+interface PromptBlockInfo {
+  id: string;
+  source: 'project_context' | 'env' | 'builtin' | 'custom' | 'workspace_agent_md' | 'skills_index';
+  title: string;
+  description: string;
+  order: number;
+  active: boolean;
+  scope: 'base' | 'query-time';
+  cache: 'stable' | 'dynamic';
+  editable: boolean;
+  path?: string;
+  text: string;
+}
+
 interface InspectRuntime {
   tools: ToolDef[];
   skills: SkillMeta[];
   systemPrompt: string[];
+  promptBlocks?: PromptBlockInfo[];
   status?: string;
   statusDetail?: string;
   cwd?: string;
@@ -78,6 +93,15 @@ function factToEntry(fact: AgentFact): AgentEntry {
   };
 }
 
+interface ObserveAgentStats {
+  agentId: string;
+  sessionCount: number;
+  totalCost: number;
+  llmCallCount: number;
+  toolCallCount: number;
+  avgCostPerSession: number;
+}
+
 export default function AgentsPage() {
   const agentFacts = useAgentFacts();
   const agents = useMemo(() => agentFacts.map(factToEntry), [agentFacts]);
@@ -96,6 +120,26 @@ export default function AgentsPage() {
   const [inspectData, setInspectData] = useState<Record<string, InspectRuntime | null>>({});
   const [inspectLoading, setInspectLoading] = useState<string | null>(null);
   const [form, setForm] = useState({ id: '', name: '', model: '', systemPrompt: '', project: '' });
+
+  /* ---- per-agent observe stats ---- */
+  const [observeStats, setObserveStats] = useState<ObserveAgentStats[]>([]);
+
+  const loadObserveStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${API.observe}/agents`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setObserveStats(Array.isArray(data) ? data : []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    loadObserveStats();
+    const id = setInterval(loadObserveStats, 30_000);
+    return () => clearInterval(id);
+  }, [loadObserveStats]);
 
   const loadInspect = useCallback(async (id: string) => {
     setInspectLoading(id);
@@ -194,10 +238,6 @@ export default function AgentsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm(`Delete agent "${id}"?`)) return;
     await fetch(API.agent(id), { method: 'DELETE' });
-  };
-
-  const handleActivate = async (id: string) => {
-    await fetch(API.agentActivate(id), { method: 'POST' });
   };
 
   const startEdit = (agent: AgentEntry) => {
@@ -398,13 +438,10 @@ export default function AgentsPage() {
                         <FolderOpen size={12} className="shrink-0" /> {agent.entry.workspace}
                       </div>
                     )}
+                    {/* Per-agent observe stats */}
+                    <AgentStatsRow agentId={agent.id} stats={observeStats} />
                   </div>
                   <div className="flex items-center gap-1 ml-4">
-                    {activeAgent !== agent.id && (
-                      <button onClick={() => handleActivate(agent.id)} title="Activate" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 transition-colors">
-                        <Play size={16} />
-                      </button>
-                    )}
                     <button onClick={() => toggleExpand(agent.id)} title={expanded === agent.id ? 'Collapse' : 'Inspect'} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 transition-colors">
                       {expanded === agent.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </button>
@@ -427,6 +464,7 @@ export default function AgentsPage() {
                     loading={inspectLoading === agent.id}
                     onToggleTool={(name) => toggleTool(agent, name)}
                     onToggleSkill={(name) => toggleSkill(agent, name)}
+                    onReload={() => loadInspect(agent.id)}
                   />
                   <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                     <MemoryPanel agentId={agent.id} hasProject={!!agent.entry.project} />
@@ -437,6 +475,40 @@ export default function AgentsPage() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// AgentStatsRow — per-agent observe stats (sessions, cost, calls)
+// ============================================================
+function AgentStatsRow({ agentId, stats }: { agentId: string; stats: ObserveAgentStats[] }) {
+  const s = stats.find((x) => x.agentId === agentId);
+  if (!s || s.sessionCount === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px]">
+      <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title="Sessions">
+        <MessageSquare size={11} />
+        <span>{s.sessionCount}</span>
+      </div>
+      <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title="API Calls">
+        <Zap size={11} />
+        <span>{s.llmCallCount}</span>
+      </div>
+      <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title="Tool Calls">
+        <Terminal size={11} />
+        <span>{s.toolCallCount}</span>
+      </div>
+      <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title="Total Cost">
+        <DollarSign size={11} />
+        <span>${s.totalCost.toFixed(4)}</span>
+      </div>
+      {s.avgCostPerSession > 0 && (
+        <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400" title="Avg Cost / Session">
+          <BarChart3 size={11} />
+          <span>${s.avgCostPerSession.toFixed(4)}/ses</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -478,14 +550,18 @@ function InspectPanel({
   loading,
   onToggleTool,
   onToggleSkill,
+  onReload,
 }: {
   agent: AgentEntry;
   runtime: InspectRuntime | null;
   loading: boolean;
   onToggleTool: (name: string) => void;
   onToggleSkill: (name: string) => void;
+  onReload: () => void;
 }) {
   const [promptOpen, setPromptOpen] = useState(false);
+  const [savingBlockId, setSavingBlockId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   if (loading) {
     return (
@@ -507,6 +583,41 @@ function InspectPanel({
   const disabledSkills = new Set(agent.entry.disabledSkills ?? []);
   const enabledToolCount = runtime.tools.filter(t => !disabledTools.has(t.name)).length;
   const enabledSkillCount = runtime.skills.filter(s => !disabledSkills.has(s.name)).length;
+  const promptBlocks = runtime.promptBlocks ?? runtime.systemPrompt.map((text, i) => ({
+    id: `legacy:${i}`,
+    source: 'builtin' as const,
+    title: `System prompt block ${i + 1}`,
+    description: 'Legacy inspect fallback.',
+    order: i,
+    active: true,
+    scope: 'base' as const,
+    cache: 'stable' as const,
+    editable: false,
+    path: undefined,
+    text,
+  }));
+  const activePromptCount = promptBlocks.filter((block) => block.active).length;
+
+  const handleSavePromptBlock = async (block: PromptBlockInfo) => {
+    setSavingBlockId(block.id);
+    try {
+      const res = await fetch(API.agentPromptBlock(agent.id, block.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: drafts[block.id] ?? block.text }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to save prompt block');
+      }
+      showToast(`Saved ${block.title}`);
+      await onReload();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to save prompt block', 'error');
+    } finally {
+      setSavingBlockId(null);
+    }
+  };
 
   return (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-5">
@@ -611,26 +722,73 @@ function InspectPanel({
         </section>
       )}
 
-      {/* System prompt (collapsed by default) */}
+      {/* Prompt blocks (collapsed by default) */}
       <section>
         <button
           onClick={() => setPromptOpen(v => !v)}
           className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
         >
           {promptOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <FileText size={14} /> System Prompt
-          <span className="text-xs text-gray-400 font-normal">({runtime.systemPrompt.length} blocks)</span>
+          <FileText size={14} /> Prompt Blocks
+          <span className="text-xs text-gray-400 font-normal">({activePromptCount}/{promptBlocks.length} active)</span>
         </button>
         {promptOpen && (
-          <div className="space-y-2">
-            {runtime.systemPrompt.map((block, i) => (
-              <pre
-                key={i}
-                className="text-xs whitespace-pre-wrap bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 max-h-64 overflow-y-auto"
-              >
-                {block}
-              </pre>
-            ))}
+          <div className="space-y-3">
+            {promptBlocks
+              .slice()
+              .sort((a, b) => a.order - b.order)
+              .map((block) => {
+                const draft = drafts[block.id] ?? block.text;
+                return (
+                  <div
+                    key={block.id}
+                    className={`rounded-lg border p-3 ${
+                      block.active
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/40'
+                        : 'border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-900/20 opacity-75'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <div className="font-medium text-sm text-gray-800 dark:text-gray-200">{block.title}</div>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${block.active ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-gray-200 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
+                        {block.active ? 'active' : 'inactive'}
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{block.scope}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">cache:{block.cache}</span>
+                      {block.editable && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">editable</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">{block.description}</div>
+                    {block.path && (
+                      <div className="text-[11px] font-mono text-gray-400 mb-2 break-all">{block.path}</div>
+                    )}
+                    {block.editable ? (
+                      <>
+                        <textarea
+                          value={draft}
+                          onChange={(e) => setDrafts((prev) => ({ ...prev, [block.id]: e.target.value }))}
+                          className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 text-xs font-mono h-32 resize-y"
+                        />
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            onClick={() => handleSavePromptBlock(block)}
+                            disabled={savingBlockId === block.id}
+                            className="px-3 py-1.5 bg-berry-600 hover:bg-berry-700 disabled:opacity-60 text-white rounded-lg text-xs flex items-center gap-1"
+                          >
+                            {savingBlockId === block.id ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                            Save source
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <pre className="text-xs whitespace-pre-wrap bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 max-h-64 overflow-y-auto">
+                        {block.text || '(empty)'}
+                      </pre>
+                    )}
+                  </div>
+                );
+              })}
           </div>
         )}
       </section>
