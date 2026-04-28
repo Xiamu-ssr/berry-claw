@@ -13,7 +13,7 @@ import { Agent, FileSessionStore } from '@berry-agent/core';
 import { createObserver } from '@berry-agent/observe';
 import { compositeGuard, directoryScope } from '@berry-agent/safe';
 import { createAllTools } from '@berry-agent/tools-common';
-import { SYSTEM_PROMPT } from '../agent/prompt.js';
+// No default system prompt — agent uses custom prompt or workspace AGENT.md
 import { SessionManager } from '../engine/session-manager.js';
 
 // Load env
@@ -52,7 +52,7 @@ beforeAll(async () => {
       baseUrl: BASE_URL,
       model: MODEL,
     },
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: 'You are a helpful assistant. Follow instructions precisely.',
     tools: createAllTools(tmpDir),
     cwd: tmpDir,
     sessionStore: new FileSessionStore(sessionsDir),
@@ -210,7 +210,7 @@ describe('Berry-Claw Integration', () => {
 
     // Switch model (same provider, different model name to verify the method works)
     // We switch to the same model since we only have one in test env
-    agent.switchProvider({ model: MODEL });
+    agent.switchModel(MODEL);
     const after = agent.currentProvider;
     expect(after.model).toBe(MODEL);
 

@@ -3,21 +3,10 @@
  */
 import {
   Agent,
+  AgentScope,
   DefaultCredentialStore,
   FileSessionStore,
   estimateTokens,
-} from '@berry-agent/core';
-import {
-  TOOL_BROWSER,
-  TOOL_EDIT_FILE,
-  TOOL_FIND_FILES,
-  TOOL_GREP,
-  TOOL_LIST_FILES,
-  TOOL_READ_FILE,
-  TOOL_SHELL,
-  TOOL_WEB_FETCH,
-  TOOL_WEB_SEARCH,
-  TOOL_WRITE_FILE,
 } from '@berry-agent/core';
 import type {
   CredentialStore,
@@ -30,9 +19,10 @@ import type {
   ToolResultContent,
   Middleware,
 } from '@berry-agent/core';
-import { compositeGuard, denyList } from '@berry-agent/safe';
-import type { ToolGuard } from '@berry-agent/core';
-import { resolve as resolvePath, relative as relativePath } from 'node:path';
+import { compositeGuard, denyList, writeScopeGuard } from '@berry-agent/safe';
+import { createBerryTools } from './berry-tools.js';
+import type { ModelEntry } from './config-manager.js';
+import type { TierId } from '@berry-agent/models';
 import { createObserver, createCollector, calculateCost, type Observer, type ModelPricing } from '@berry-agent/observe';
 import {
   createAllTools,
@@ -41,7 +31,10 @@ import {
   createWebSearchTool,
   WEB_SEARCH_CREDENTIAL_KEYS,
   type WebSearchProviderName,
+  type ShellToolOptions,
 } from '@berry-agent/tools-common';
+import { createSandbox, type SandboxConfig } from '@berry-agent/safe';
+import type { CommandExecutor } from '@berry-agent/core';
 import { ConfigManager, type AgentEntry } from './config-manager.js';
 import { SessionManager, type ChatMessage } from './session-manager.js';
 import { buildBaseSystemPrompt, listPromptBlocks, type PromptBlockInfo } from './prompt-blocks.js';
@@ -52,31 +45,8 @@ import { Team, type TeamState } from '@berry-agent/team';
 import { mkdirSync, existsSync } from 'node:fs';
 import { FactBus } from '../facts/bus.js';
 import { deriveAgentFact, deriveTeamFact } from '../facts/derive.js';
-
-const TOOL_GROUPS: Record<string, readonly string[]> = {
-  file: [TOOL_READ_FILE, TOOL_WRITE_FILE, TOOL_LIST_FILES, TOOL_EDIT_FILE],
-  shell: [TOOL_SHELL],
-  search: [TOOL_GREP, TOOL_FIND_FILES],
-  web_fetch: [TOOL_WEB_FETCH],
-  web_search: [TOOL_WEB_SEARCH],
-  browser: [TOOL_BROWSER],
-};
-
-const TOOL_GROUP_LABELS: Record<string, string> = {
-  file: 'File',
-  shell: 'Shell',
-  search: 'Search',
-  web_fetch: 'Web Fetch',
-  web_search: 'Web Search',
-  browser: 'Browser',
-};
-
-export function getToolGroup(toolName: string): string {
-  for (const [group, names] of Object.entries(TOOL_GROUPS)) {
-    if (names.includes(toolName)) return TOOL_GROUP_LABELS[group] ?? group;
-  }
-  return 'Other';
-}
+import { MCPManager } from './mcp-manager.js';
+import { loadMergedMCPConfig, ensureDefaultAgentMCP } from './mcp-config.js';
 
 /**
  * Pick a web_search provider based on which credential key is present.
@@ -105,52 +75,46 @@ function buildWebSearchTool(credentials: CredentialStore): ToolRegistration {
  * runtime without destroying the Agent instance.
  */
 function buildTools(
-  workspace: string,
+  scope: import('@berry-agent/core').AgentScope,
   entry: AgentEntry,
   credentials: CredentialStore,
+  sandboxEnabled: boolean = true,
 ): ToolRegistration[] {
+  // Build shell options with optional sandbox
+  const shellOptions: ShellToolOptions = {};
+  if (sandboxEnabled) {
+    const sandboxConfig = scope.toSandboxConfig();
+    const executor = createSandbox(sandboxConfig);
+    if (executor) {
+      shellOptions.executor = executor;
+      console.log(`[sandbox] Shell commands run inside OS sandbox (platform: ${process.platform})`);
+      console.log(`[sandbox] Writable: ${scope.writableRoots.join(', ')}`);
+    } else {
+      console.warn(`[sandbox] OS sandbox not available on ${process.platform}. Shell commands run unsandboxed.`);
+    }
+  }
+
   const tools = [
-    ...createAllTools(workspace),
+    ...createAllTools(scope, shellOptions),
     createWebFetchTool(),
     buildWebSearchTool(credentials),
     createBrowserTool(),
   ];
 
   if (entry.tools === undefined) return tools;
+  // Build group→toolNames index from registered tools, then expand
+  // entry.tools (which may contain group names like 'file' or 'shell')
+  // into concrete tool names.
+  const groupToNames = new Map<string, string[]>();
+  for (const tool of tools) {
+    const g = tool.definition.group ?? 'other';
+    if (!groupToNames.has(g)) groupToNames.set(g, []);
+    groupToNames.get(g)!.push(tool.definition.name);
+  }
   const allowedToolNames = new Set(
-    entry.tools.flatMap((name) => TOOL_GROUPS[name] ?? [name]),
+    entry.tools.flatMap((name) => groupToNames.get(name) ?? [name]),
   );
   return tools.filter((tool) => allowedToolNames.has(tool.definition.name));
-}
-
-/**
- * ToolGuard that allows path-bearing tool inputs whose target resolves
- * inside **any** of the given root directories. Mirrors @berry-agent/safe's
- * single-root directoryScope() but OR-combines multiple roots, which is
- * needed when an agent is bound to a project: files may live under the
- * project root or under the agent's own workspace (memory/notes/skills).
- */
-function buildMultiRootScope(roots: string[]): ToolGuard {
-  const resolvedRoots = roots.map((r) => resolvePath(r));
-  const pathFields = ['path', 'file', 'filename', 'dir', 'directory', 'target'];
-  return async ({ input }) => {
-    for (const field of pathFields) {
-      const value = input[field];
-      if (typeof value !== 'string') continue;
-      // Try each root; allow if any contains the path.
-      const anyMatch = resolvedRoots.some((root) => {
-        const abs = resolvePath(root, value);
-        return !relativePath(root, abs).startsWith('..');
-      });
-      if (!anyMatch) {
-        return {
-          action: 'deny',
-          reason: `Path "${value}" is outside all allowed roots: ${resolvedRoots.join(', ')}`,
-        };
-      }
-    }
-    return { action: 'allow' };
-  };
 }
 
 export interface AgentInstance {
@@ -186,13 +150,25 @@ export class AgentManager {
    */
   private pendingRehydrates = new Map<string, Promise<void>>();
   private activeAgentId: string;
-  private pricingOverrides: Record<string, ModelPricing>;
+  /** Pricing overrides (built-in + OpenRouter). Mutated at runtime after
+   *  OpenRouter fetch so that per-agent collectors see the updated map. */
+  pricingOverrides: Record<string, ModelPricing>;
   /**
    * Per-agent observe collectors. Each agent gets its own collector so that
    * agentId is correctly stamped into sessions / turns / llm_calls.
    * The database connection is shared (all collectors write to the same DB).
    */
   private agentCollectors = new Map<string, { middleware: Middleware; eventListener: (event: AgentEvent) => void }>();
+  /** Per-agent session stores (FileSessionStore). Kept so we can delete / mutate sessions directly. */
+  private agentSessionStores = new Map<string, import('@berry-agent/core').SessionStore>();
+  /** Server port (set by startServer after binding). Used by berry_status. */
+  port: number = 3210;
+  /** Server start timestamp. Used by berry_status to compute uptime. */
+  readonly startTime = Date.now();
+  /** Whether a restart has been scheduled (idempotent guard). */
+  private restartScheduled = false;
+  /** MCP server connection manager (shared + per-agent). */
+  readonly mcpManager = new MCPManager();
 
   constructor(options: AgentManagerOptions = {}) {
     this.config = new ConfigManager({ appDir: options.appDir });
@@ -248,6 +224,10 @@ export class AgentManager {
     const workspace = entry.workspace ?? this.config.agentWorkspace(id);
     if (!existsSync(workspace)) mkdirSync(workspace, { recursive: true });
 
+    // Seed a default per-agent .mcp.json on first init so new agents
+    // get playwright-mcp out of the box. No-op when the file exists.
+    ensureDefaultAgentMCP(workspace);
+
     const sessionsDir = join(this.config.appDir, 'sessions', id);
     if (!existsSync(sessionsDir)) mkdirSync(sessionsDir, { recursive: true });
 
@@ -265,8 +245,11 @@ export class AgentManager {
     // truth for "where am I operating?" introspection.
     const systemPrompt = buildBaseSystemPrompt(entry, workspace);
 
-    // Build tools based on config
-    const tools = buildTools(workspace, entry, this.credentials);
+    // Build scope — single source of truth for agent's writable paths
+    const scope = new AgentScope(workspace, projectRoot);
+
+    // Build tools based on scope
+    const tools = buildTools(scope, entry, this.credentials);
 
     // Memory provider: FTS5-backed search over
     //   - {workspace}/MEMORY.md + memory/*.md  (personal)
@@ -282,11 +265,9 @@ export class AgentManager {
     // and finishes near-instantly. The first search call will hit a warm index.
     memoryProvider.sync().catch(() => {/* best-effort */});
 
-    // Directory scoping: allow BOTH project root (work files) AND agent
-    // workspace (private memory/notes). directoryScope() is single-root, so
-    // compose an OR guard that allows paths inside either root.
-    const allowedRoots = projectRoot ? [projectRoot, workspace] : [workspace];
-    const multiRootScope = buildMultiRootScope(allowedRoots);
+    // Directory scoping: write operations restricted to writableRoots,
+    // read operations unrestricted. Scope is the single source of truth.
+    const writeGuard = writeScopeGuard(scope);
 
     // Per-agent observe collector: each agent gets its own collector so that
     // agentId is correctly stamped into sessions / turns / llm_calls. The DB
@@ -298,6 +279,8 @@ export class AgentManager {
       agentId: id,
     });
     this.agentCollectors.set(id, collector);
+    const store = new FileSessionStore(sessionsDir);
+    this.agentSessionStores.set(id, store);
 
     const agent = new Agent({
       provider: providerInput,
@@ -309,9 +292,9 @@ export class AgentManager {
       project: projectRoot,
       memory: memoryProvider,
       skillDirs: entry.skillDirs,
-      sessionStore: new FileSessionStore(sessionsDir),
+      sessionStore: store,
       toolGuard: compositeGuard(
-        multiRootScope,
+        writeGuard,
         denyList(['rm -rf /', 'rm -rf ~', 'DROP TABLE', 'DROP DATABASE']),
       ),
       middleware: [collector.middleware],
@@ -333,7 +316,37 @@ export class AgentManager {
       agent.setAllowedTools(all.filter(n => !initialDisabled.has(n)));
     }
 
+    // Mount berry system management tools (berry_status, berry_restart, berry_config)
+    const berryTools = createBerryTools({
+      getActiveAgentId: () => this.activeAgentId,
+      getAgentStatus: (id) => this.getAgentStatus(id),
+      currentModel: () => this.currentModel(),
+      listAgents: () => this.config.listAgents(),
+      getTiers: () => this.config.getTiers(),
+      listProviderInstances: () => this.config.listProviderInstances(),
+      listModels: () => this.config.listModels(),
+      getAgent: (id) => this.config.getAgent(id),
+      setModel: (id, entry) => { this.config.setModel(id, entry as unknown as ModelEntry); try { this.reloadAgent(id); } catch { /* agent may not be running */ } },
+      setTier: (tier, modelId) => this.config.setTier(tier as TierId, modelId),
+      reloadAgent: (id) => this.reloadAgent(id),
+      scheduleRestart: (reason) => this.scheduleRestart(reason),
+      port: this.port,
+      startTime: this.startTime,
+    });
+    for (const tool of berryTools) {
+      agent.addTool(tool);
+    }
+
     this.agents.set(id, { id, agent, entry });
+
+    // Fire-and-forget MCP server initialization: per-agent MCP tools are
+    // mounted asynchronously via agent.addTool(). This keeps initAgent sync
+    // while allowing MCP connections (which involve sub-process spawning and
+    // HTTP handshakes) to resolve on their own schedule. The agent is usable
+    // immediately — MCP tools appear as they connect.
+    this.startAgentMCP(id).catch((err) => {
+      console.error(`[agent:${id}] MCP initialization failed:`, err instanceof Error ? err.message : err);
+    });
 
     // Auto-rehydrate team: if this agent has a project and the project
     // already has a team.json naming this agent as leader, reopen the team,
@@ -358,6 +371,55 @@ export class AgentManager {
     this.emitAgentFact(id);
 
     return agent;
+  }
+
+  /**
+   * Start per-agent MCP servers and mount their tools.
+   * Called as fire-and-forget from initAgent — the agent is usable
+   * immediately, MCP tools are added as they connect.
+   *
+   * Config source is the 3-layer .mcp.json cascade:
+   *   global  = ~/.berry-claw/.mcp.json
+   *   project = <entry.project>/.mcp.json   (if bound to a project)
+   *   agent   = <entry.workspace>/.mcp.json
+   * Later layers override earlier ones field-by-field. Only servers
+   * with shared=false reach this per-agent start path.
+   */
+  private async startAgentMCP(agentId: string): Promise<void> {
+    const instance = this.agents.get(agentId);
+    if (!instance) return;
+    const entry = instance.entry;
+    const workspace = entry.workspace ?? this.config.agentWorkspace(agentId);
+
+    const mcpConfigs = loadMergedMCPConfig({
+      globalPath: join(this.config.appDir, '.mcp.json'),
+      projectPath: entry.project ? join(entry.project, '.mcp.json') : undefined,
+      agentPath: join(workspace, '.mcp.json'),
+    });
+    if (Object.keys(mcpConfigs).length === 0) return;
+
+    const mcpTools = await this.mcpManager.startAgentServers(agentId, mcpConfigs);
+    for (const tool of mcpTools) {
+      instance.agent.addTool(tool);
+    }
+
+    // Re-apply disabledTools now that MCP tools are registered
+    const disabled = new Set(entry.disabledTools ?? []);
+    if (disabled.size > 0) {
+      const all = instance.agent.getTools().map(t => t.name);
+      instance.agent.setAllowedTools(all.filter(n => !disabled.has(n)));
+    }
+
+    this.emitAgentFact(agentId);
+  }
+
+  /** Remove an agent from the cache and release its per-agent MCP servers. */
+  private dropAgent(agentId: string): void {
+    this.agents.delete(agentId);
+    // Fire-and-forget: per-agent MCP servers are released asynchronously
+    this.mcpManager.releaseAgent(agentId).catch((err) => {
+      console.error(`[agent:${agentId}] MCP release failed:`, err instanceof Error ? err.message : err);
+    });
   }
 
   /**
@@ -461,7 +523,7 @@ export class AgentManager {
         // Remove the teammate's AgentEntry from the registry. Leaves the
         // session log on disk (kept for audit). The dead in-memory Agent
         // instance is dropped so memory doesn't leak.
-        this.agents.delete(teammateId);
+        this.dropAgent(teammateId);
         try { this.config.removeAgent(teammateId); } catch { /* already gone */ }
         // Teammate vanished → emit deletion + refresh team fact so the
         // UI drops the card and re-renders the teammate list in one pass.
@@ -583,7 +645,7 @@ export class AgentManager {
     const cached = this.agents.get(agentId);
     const entry = this.config.getAgent(agentId);
     if (!entry) {
-      this.agents.delete(agentId);
+      this.dropAgent(agentId);
       this.emitAgentFact(agentId); // emits null → deletion
       return;
     }
@@ -597,12 +659,17 @@ export class AgentManager {
     // and the .berry/ directory — none of which are hot-swappable. Drop the
     // cached instance so the next getAgent() re-runs initAgent() fresh.
     if ((entry.project ?? null) !== (cached.entry.project ?? null)) {
-      this.agents.delete(agentId);
+      this.dropAgent(agentId);
       return;
     }
 
-    // 1. System prompt
-    cached.agent.setSystemPrompt(entry.systemPrompt ?? '');
+    // 1. System prompt — rebuild full base prompt (env + custom) so we
+    //    don't lose the <env> context block that initAgent injects.
+    const workspace = cached.entry.workspace ?? this.config.agentWorkspace(agentId);
+    const fullPrompt = buildBaseSystemPrompt(entry, workspace);
+    cached.agent.setSystemPrompt(fullPrompt);
+    // No need to sync systemPrompt into session store — systemPrompt is now
+    // sourced from the Agent instance (this.systemPrompt), not from Session.
 
     // 2. Model (if changed) — hot swap via static ProviderConfig using the
     //    first provider in the new model's binding. A full resolver swap on
@@ -725,13 +792,66 @@ export class AgentManager {
    * Create a new empty SDK session and sync it into SessionManager.
    * Returns the created session state so callers can immediately use the real sessionId.
    */
+  /**
+   * Get-or-create the single session for an agent.
+   * 1-agent-1-session: if a session already exists, return it instead of creating a new one.
+   */
   async createSession(agentId?: string): Promise<import('./session-manager.js').SessionState> {
-    const agent = this.getAgent(agentId);
+    const id = agentId ?? this.activeAgentId;
+    const agent = this.getAgent(id);
+    const existingIds = await agent.listSessions();
+    if (existingIds.length > 0) {
+      const sessionId = existingIds[0];
+      const session = await agent.getSession(sessionId);
+      const state = hydrateSessionState(session ?? { id: sessionId, messages: [], createdAt: Date.now(), lastAccessedAt: Date.now(), metadata: { totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0, totalCacheWriteTokens: 0, compactionCount: 0 } }, id);
+      this.sessions.upsertState(state);
+      this.sessions.switchSession(sessionId);
+      return state;
+    }
     const sdkSession = await agent.createSession();
-    const state = hydrateSessionState(sdkSession, agentId ?? this.activeAgentId);
+    const state = hydrateSessionState(sdkSession, id);
     this.sessions.upsertState(state);
     this.sessions.switchSession(sdkSession.id);
     return state;
+  }
+
+  /**
+   * Clear the current session for an agent (1-agent-1-session "max compaction").
+   * Empties message history AND clears the event log so resume won't rebuild
+   * old messages. Keeps the same session id. Extra sessions are deleted.
+   */
+  async clearSession(agentId?: string): Promise<string> {
+    const id = agentId ?? this.activeAgentId;
+    const agent = this.getAgent(id);
+    const store = this.agentSessionStores.get(id);
+    const existingIds = await agent.listSessions();
+    let sessionId: string;
+
+    if (existingIds.length > 0) {
+      sessionId = existingIds[0];
+      // Clear both the event log and session store — true "new session" reset
+      await agent.clearSession(sessionId);
+      // Delete extra sessions (shouldn't happen, but clean up just in case)
+      for (let i = 1; i < existingIds.length; i++) {
+        try {
+          if (store) await store.delete(existingIds[i]);
+          this.sessions.deleteSession(existingIds[i]);
+        } catch { /* ignore */ }
+      }
+    } else {
+      const created = await agent.createSession();
+      sessionId = created.id;
+    }
+
+    // Re-hydrate UI state with empty messages
+    const fresh = await agent.getSession(sessionId);
+    const state = hydrateSessionState(
+      fresh ?? { id: sessionId, messages: [], createdAt: Date.now(), lastAccessedAt: Date.now(), metadata: { totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0, totalCacheWriteTokens: 0, compactionCount: 0 } },
+      id,
+    );
+    this.sessions.upsertState(state);
+    this.sessions.switchSession(sessionId);
+    return sessionId;
   }
 
   /**
@@ -797,9 +917,16 @@ export class AgentManager {
       const existing = this.sessions.getState(sessionId) ?? await this.loadSessionState(sessionId, options?.agentId);
       if (!existing) throw new Error(`Session not found: ${sessionId}`);
     } else {
-      const created = await agent.createSession();
-      sessionId = created.id;
-      this.sessions.upsertState(hydrateSessionState(created));
+      // 1-agent-1-session: reuse existing session instead of creating a new one.
+      const existingIds = await agent.listSessions();
+      if (existingIds.length > 0) {
+        sessionId = existingIds[0];
+        await this.loadSessionState(sessionId, options?.agentId);
+      } else {
+        const created = await agent.createSession();
+        sessionId = created.id;
+        this.sessions.upsertState(hydrateSessionState(created));
+      }
     }
 
     const userMessage = this.sessions.addUserMessage(sessionId, prompt, {
@@ -936,7 +1063,9 @@ export class AgentManager {
     if (!sessionId) return { current: 0, window: ctxWindow };
     const session = await instance.agent.getSession(sessionId);
     if (!session) return { current: 0, window: ctxWindow };
-    const current = estimateTokens(session.messages);
+    // Use API-returned full input tokens (system+tools+messages) as ground truth.
+    // Fall back to message-only estimate when no API call has happened yet.
+    const current = session.metadata.lastInputTokens ?? estimateTokens(session.messages);
     return { current, window: ctxWindow };
   }
 
@@ -960,6 +1089,19 @@ export class AgentManager {
   }
 
   get activeAgent(): string { return this.activeAgentId; }
+
+  /**
+   * Schedule a graceful server restart. Sets a flag and calls process.exit(0)
+   * after a 500ms delay so the current turn can complete. Idempotent —
+   * calling multiple times is safe.
+   */
+  scheduleRestart(reason?: string): void {
+    if (this.restartScheduled) return;
+    this.restartScheduled = true;
+    const msg = reason ? `Restart requested: ${reason}` : 'Restart requested';
+    console.log(`[system] ${msg}. Exiting in 500ms.`);
+    setTimeout(() => process.exit(0), 500);
+  }
 
   close(): void { this.observer.close(); }
 }

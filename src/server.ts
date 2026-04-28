@@ -7,8 +7,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'node:http';
 import { resolve, join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { AgentManager, getToolGroup } from './engine/agent-manager.js';
-import { createObserveRouter } from '@berry-agent/observe';
+import { AgentManager } from './engine/agent-manager.js';
+import { loadMCPLayer } from './engine/mcp-config.js';
+import { createObserveRouter, fetchOpenRouterPricing } from '@berry-agent/observe';
 import type { AgentEvent } from '@berry-agent/core';
 import { WEB_SEARCH_CREDENTIAL_META, type CredentialKeyMeta } from '@berry-agent/tools-common';
 import { deriveAgentFact, deriveTeamFact } from './facts/derive.js';
@@ -29,8 +30,37 @@ export interface StartServerOptions {
   appDir?: string;
 }
 
-export function startServer(port: number, options: StartServerOptions = {}) {
+export async function startServer(port: number, options: StartServerOptions = {}) {
   const manager = new AgentManager({ appDir: options.appDir });
+
+  // Pre-fetch OpenRouter pricing so that cost calculations work for models
+  // not in the built-in pricing table (e.g. deepseek, moonshot, etc.).
+  // This is best-effort: if the fetch fails we still boot the server.
+  try {
+    const openRouterPricing = await fetchOpenRouterPricing();
+    const count = Object.keys(openRouterPricing).length;
+    if (count > 0) {
+      Object.assign(manager.pricingOverrides, openRouterPricing);
+      console.log(`[pricing] Loaded ${count} models from OpenRouter`);
+    }
+  } catch {
+    // ignore — built-in pricing still works
+  }
+
+  // Start shared MCP servers from the global .mcp.json layer.
+  // Entries with shared=false are skipped inside MCPManager — they're
+  // started per-agent in agent-manager's startAgentMCP().
+  try {
+    const globalLayer = loadMCPLayer(join(manager.config.appDir, '.mcp.json'), 'global');
+    await manager.mcpManager.startSharedServers(globalLayer);
+    const status = manager.mcpManager.getStatus();
+    if (status.shared.length > 0) {
+      console.log(`[MCP] Started ${status.shared.length} shared servers: ${status.shared.map(s => s.name).join(', ')}`);
+    }
+  } catch (err) {
+    console.error('[MCP] Shared server startup failed:', err instanceof Error ? err.message : err);
+  }
+
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -319,6 +349,11 @@ export function startServer(port: number, options: StartServerOptions = {}) {
     res.json({ statuses: out });
   });
 
+  /** MCP server connection status */
+  app.get('/api/mcp/status', (_req, res) => {
+    res.json(manager.mcpManager.getStatus());
+  });
+
   /** Current context token size for the active session of an agent */
   app.get('/api/agents/:id/context-size', async (req, res) => {
     try {
@@ -466,10 +501,6 @@ export function startServer(port: number, options: StartServerOptions = {}) {
       const runtime = info.runtime
         ? {
             ...info.runtime,
-            tools: info.runtime.tools.map((t: { name: string; description: string }) => ({
-              ...t,
-              group: getToolGroup(t.name),
-            })),
             promptBlocks,
           }
         : { promptBlocks };
@@ -500,6 +531,16 @@ export function startServer(port: number, options: StartServerOptions = {}) {
           const workspace = entry.workspace ?? manager.config.agentWorkspace(req.params.id);
           await writeFile(join(workspace, 'AGENT.md'), content, 'utf-8');
           manager.reloadAgent(req.params.id);
+          break;
+        }
+        case 'project_context': {
+          if (!entry.project) {
+            return res.status(400).json({ error: 'Agent has no project, cannot edit project context' });
+          }
+          const { writeFile } = await import('node:fs/promises');
+          await writeFile(join(entry.project, 'AGENTS.md'), content, 'utf-8');
+          // project_context is a query-time block — SDK re-reads on every query,
+          // so no reload needed. But we still re-emit so the UI refreshes.
           break;
         }
         default:
@@ -598,6 +639,41 @@ export function startServer(port: number, options: StartServerOptions = {}) {
   app.use('/api/observe', createObserveRouter(manager.observer));
 
   // ============================
+  // System API
+  // ============================
+
+  app.get('/api/system/status', (_req, res) => {
+    const agents = manager.config.listAgents();
+    const agentStatuses: Record<string, { status: string; detail?: string }> = {};
+    for (const { id } of agents) {
+      const snap = manager.getAgentStatus(id);
+      agentStatuses[id] = snap ?? { status: 'idle' };
+    }
+    res.json({
+      port,
+      uptimeSeconds: Math.floor((Date.now() - manager.startTime) / 1000),
+      activeAgent: manager.activeAgent,
+      currentModel: manager.currentModel(),
+      tiers: manager.config.getTiers(),
+      agents: agents.map(({ id, entry }) => ({
+        id,
+        name: entry.name,
+        model: entry.model,
+        status: agentStatuses[id]?.status ?? 'idle',
+      })),
+      configured: manager.config.isConfigured,
+    });
+  });
+
+  app.post('/api/system/restart', (req, res) => {
+    const reason = req.body?.reason as string | undefined;
+    res.json({ ok: true, message: 'Restart scheduled. Server will exit in 500ms.' });
+    res.on('finish', () => {
+      manager.scheduleRestart(reason);
+    });
+  });
+
+  // ============================
   // Static frontend (production)
   // ============================
 
@@ -657,11 +733,13 @@ export function startServer(port: number, options: StartServerOptions = {}) {
           }
       case 'new_session': {
         try {
-          const state = await manager.createSession(msg.agentId);
+          // 1-agent-1-session: "new session" means clear the current session (max compaction)
+          const sessionId = await manager.clearSession(msg.agentId);
+          const state = await manager.loadSessionState(sessionId, msg.agentId);
           ws.send(JSON.stringify({
             type: 'session_created',
-            sessionId: state.id,
-            messages: state.messages,
+            sessionId,
+            messages: state?.messages ?? [],
           }));
         } catch (err: any) {
           ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -728,6 +806,7 @@ export function startServer(port: number, options: StartServerOptions = {}) {
   });
 
   server.listen(port, () => {
+    manager.port = port;
     console.log(`🐾 Berry-Claw server at http://localhost:${port}`);
     console.log(`📁 Agents dir: ${join(manager.config.appDir, 'agents')}`);
     if (manager.config.isConfigured) {
@@ -797,6 +876,7 @@ async function handleChat(
               contextAfter: event.contextAfter,
               contextWindow: event.contextWindow,
               thresholdPct: event.thresholdPct,
+              triggerReason: event.triggerReason,
             }));
             break;
           case 'status_change':

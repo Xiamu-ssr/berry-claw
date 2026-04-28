@@ -31,6 +31,18 @@ interface ToolDef {
   group?: string;
 }
 
+const GROUP_LABELS: Record<string, string> = {
+  file: 'File',
+  shell: 'Shell',
+  search: 'Search',
+  web: 'Web',
+  memory: 'Memory',
+  team: 'Team',
+  agent: 'Agent',
+  system: 'System',
+  other: 'Other',
+};
+
 interface SkillMeta {
   name: string;
   description: string;
@@ -655,14 +667,14 @@ function InspectPanel({
         <div className="space-y-3">
           {Array.from(
             runtime.tools.reduce((map, tool) => {
-              const group = tool.group || 'Other';
+              const group = tool.group || 'other';
               if (!map.has(group)) map.set(group, []);
               map.get(group)!.push(tool);
               return map;
             }, new Map<string, ToolDef[]>()).entries()
           ).map(([group, tools]) => (
             <div key={group}>
-              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{group}</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{GROUP_LABELS[group] || group}</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {tools.map(tool => {
                   const disabled = disabledTools.has(tool.name);
@@ -722,14 +734,14 @@ function InspectPanel({
         </section>
       )}
 
-      {/* Prompt blocks (collapsed by default) */}
+      {/* System Prompt blocks (collapsed by default) */}
       <section>
         <button
           onClick={() => setPromptOpen(v => !v)}
           className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
         >
           {promptOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <FileText size={14} /> Prompt Blocks
+          <FileText size={14} /> System Prompt
           <span className="text-xs text-gray-400 font-normal">({activePromptCount}/{promptBlocks.length} active)</span>
         </button>
         {promptOpen && (

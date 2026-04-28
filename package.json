@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@berry-agent/core": "file:../berry-agent-sdk/packages/core",
+    "@berry-agent/mcp": "file:../berry-agent-sdk/packages/mcp",
     "@berry-agent/memory-file": "file:../berry-agent-sdk/packages/memory-file",
     "@berry-agent/models": "file:../berry-agent-sdk/packages/models",
     "@berry-agent/team": "file:../berry-agent-sdk/packages/team",

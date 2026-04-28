@@ -130,6 +130,7 @@ export type WsIncoming =
       contextAfter: number;
       contextWindow: number;
       thresholdPct: number;
+      triggerReason: 'soft_threshold' | 'threshold' | 'overflow_retry';
     }
   | ({ type: 'fact_changed' } & import('./facts/types').FactChange)
   | {

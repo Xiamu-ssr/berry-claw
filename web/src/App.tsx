@@ -235,16 +235,21 @@ export default function App() {
             cost: msg.cost,
           },
         ]);
+        // Update context bar with real full-input token count from API
+        const fullInput = msg.usage.inputTokens + (msg.usage.cacheReadTokens ?? 0) + (msg.usage.cacheWriteTokens ?? 0);
+        if (fullInput > 0) setContextTokensUsed(fullInput);
         break;
       }
 
       case 'compaction': {
         setContextWindow(msg.contextWindow);
         setContextTokensUsed(msg.contextAfter);
+        const isHard = msg.triggerReason === 'threshold' || msg.triggerReason === 'overflow_retry';
+        const label = isHard ? 'Context compressed' : 'Context optimized';
         toastRef.current.show({
           variant: 'info',
-          title: 'Context compacted',
-          message: `Freed ${msg.tokensFreed?.toLocaleString() ?? 0} tokens · ${msg.contextAfter?.toLocaleString() ?? 0}/${msg.contextWindow?.toLocaleString() ?? 0} remaining`,
+          title: label,
+          message: `Freed ${msg.tokensFreed?.toLocaleString() ?? 0} tokens · ${msg.contextAfter?.toLocaleString() ?? 0}/${msg.contextWindow?.toLocaleString() ?? 0} used`,
           durationMs: 4000,
         });
         break;
@@ -689,7 +694,7 @@ function ChatTab({
             onClick={onCompact}
             className="text-xs px-3 py-1.5 rounded-md bg-[#1a1a1a] text-gray-400 hover:text-gray-200 hover:bg-[#222] transition-colors border border-[#2a2a2a]"
           >
-            New Session
+            Clear Chat
           </button>
         </div>
       </div>
