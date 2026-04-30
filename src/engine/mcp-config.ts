@@ -6,6 +6,9 @@
 //   project = <agent.project>/.mcp.json
 //   agent   = <agent.workspace>/.mcp.json
 //
+// Paths are constructed via ConfigManager.*MCPPath() — this module
+// never hardcodes the filename. See ./mcp-constants.ts.
+//
 // The on-disk schema follows Claude Code / Cursor standard: a flat
 // mcpServers map whose entries carry `command`/`args`/`env` (stdio)
 // or `type`/`url`/`headers` (sse / http). berry-claw-specific
@@ -15,15 +18,24 @@
 // Merge semantics: field-level deep merge across layers, later
 // layers override earlier ones. `env` and `headers` merge at key
 // level so a lower layer can inject extras. `args` is a list and
-// replaces wholesale.
+// replaces wholesale. `shared` is three-state during merge (the
+// default is applied *after* the merge, by the layer that actually
+// contributed the entry).
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import type { MCPTransportConfig } from '@berry-agent/mcp';
+import {
+  DEFAULT_AGENT_MCP_TEMPLATE,
+  defaultMCPPrefix,
+} from './mcp-constants.js';
 
 // ============================================================
 // Internal normalized shape (what MCPManager consumes)
 // ============================================================
+
+/** Layer identity drives defaults: global → shared=true; others → shared=false. */
+export type MCPLayer = 'global' | 'project' | 'agent';
 
 export interface MCPServerConfig {
   /** Transport configuration (stdio or http/sse). */
@@ -31,17 +43,34 @@ export interface MCPServerConfig {
   /** true = shared across agents, false = per-agent instance. */
   shared: boolean;
   /** Prefix added to all tool names (defaults to `${serverName}_`). */
-  prefix?: string;
+  prefix: string;
   /** Whether this server is enabled (defaults to true). */
-  enabled?: boolean;
+  enabled: boolean;
+  /**
+   * Top-most layer whose entry contributed to the final merged config.
+   * UI uses this to show "this server comes from the global/project/agent
+   * layer". Merge rule: whichever layer's entry most recently overwrote
+   * the name wins (matches "later layers win" for every other field).
+   */
+  layer: MCPLayer;
+}
+
+/**
+ * Intermediate representation used during merge. `shared` is optional here
+ * so we can distinguish "user didn't write shared" from "user wrote false".
+ * After merge, {@link resolveDefaults} collapses `undefined` → layer default.
+ */
+interface MergingMCPServerConfig {
+  transport: MCPTransportConfig;
+  shared?: boolean;
+  prefix: string;
+  enabled: boolean;
+  layer: MCPLayer;
 }
 
 // ============================================================
 // Raw on-disk shape (Claude Code standard + berry extensions)
 // ============================================================
-
-/** Layer identity drives defaults: global → shared=true; others → shared=false. */
-export type MCPLayer = 'global' | 'project' | 'agent';
 
 /** Raw entry as written by the user in .mcp.json. */
 interface RawMCPEntry {
@@ -88,7 +117,85 @@ export function loadMCPLayer(
   }
   if (!raw.mcpServers || typeof raw.mcpServers !== 'object') return {};
 
-  const out: Record<string, MCPServerConfig> = {};
+  const merging: Record<string, MergingMCPServerConfig> = {};
+  for (const [name, entry] of Object.entries(raw.mcpServers)) {
+    try {
+      merging[name] = normalizeEntry(name, entry, layer);
+    } catch (err) {
+      console.error(
+        `[MCP] Skipping invalid server "${name}" in ${filePath}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return resolveDefaults(merging);
+}
+
+/**
+ * Load and merge the full 3-layer cascade for a given agent.
+ * Order: global → project → agent (later wins field-by-field).
+ * The layer default for `shared` is applied *after* the merge, based
+ * on whichever layer actually contributed the entry — this preserves
+ * user intent when e.g. a `global` entry sets shared=true and a lower
+ * layer only tweaks `env`.
+ */
+export function loadMergedMCPConfig(opts: {
+  globalPath: string;
+  projectPath?: string;
+  agentPath: string;
+}): Record<string, MCPServerConfig> {
+  const globalLayer = loadRawLayer(opts.globalPath, 'global');
+  const projectLayer = opts.projectPath ? loadRawLayer(opts.projectPath, 'project') : {};
+  const agentLayer = loadRawLayer(opts.agentPath, 'agent');
+  return resolveDefaults(mergeRawLayers([globalLayer, projectLayer, agentLayer]));
+}
+
+/**
+ * Field-level deep merge of layered MCP configs (public API, pre-resolved).
+ * Takes already-resolved {@link MCPServerConfig} layers — this is the shape
+ * tests and the old API expected. Merges the three-state internally so the
+ * merge bug (defaulted `shared:false` from an upper layer wiping a lower
+ * layer's `shared:true`) does not recur.
+ */
+export function mergeMCPConfigs(
+  layers: Array<Record<string, MCPServerConfig>>,
+): Record<string, MCPServerConfig> {
+  const merging = layers.map(stripDefaults);
+  return resolveDefaults(mergeRawLayers(merging));
+}
+
+/**
+ * Ensure an agent's workspace has a .mcp.json. If missing, writes a
+ * default template that registers playwright-mcp as a per-agent server.
+ * Idempotent — existing files are left untouched. The path is provided
+ * by ConfigManager.agentMCPPath() — callers pass the full path so the
+ * filename is not duplicated here.
+ */
+export function ensureDefaultAgentMCP(mcpPath: string): void {
+  if (existsSync(mcpPath)) return;
+  if (!existsSync(dirname(mcpPath))) mkdirSync(dirname(mcpPath), { recursive: true });
+  writeFileSync(mcpPath, JSON.stringify(DEFAULT_AGENT_MCP_TEMPLATE, null, 2) + '\n', 'utf-8');
+}
+
+// ============================================================
+// Internals
+// ============================================================
+
+function loadRawLayer(
+  filePath: string,
+  layer: MCPLayer,
+): Record<string, MergingMCPServerConfig> {
+  if (!existsSync(filePath)) return {};
+  let raw: RawMCPJson;
+  try {
+    raw = JSON.parse(readFileSync(filePath, 'utf-8')) as RawMCPJson;
+  } catch (err) {
+    console.error(`[MCP] Failed to parse ${filePath}:`, err instanceof Error ? err.message : err);
+    return {};
+  }
+  if (!raw.mcpServers || typeof raw.mcpServers !== 'object') return {};
+
+  const out: Record<string, MergingMCPServerConfig> = {};
   for (const [name, entry] of Object.entries(raw.mcpServers)) {
     try {
       out[name] = normalizeEntry(name, entry, layer);
@@ -102,33 +209,21 @@ export function loadMCPLayer(
   return out;
 }
 
-/**
- * Load and merge the full 3-layer cascade for a given agent.
- * Order: global → project → agent (later wins field-by-field).
- */
-export function loadMergedMCPConfig(opts: {
-  globalPath: string;
-  projectPath?: string;
-  agentPath: string;
-}): Record<string, MCPServerConfig> {
-  const globalLayer = loadMCPLayer(opts.globalPath, 'global');
-  const projectLayer = opts.projectPath ? loadMCPLayer(opts.projectPath, 'project') : {};
-  const agentLayer = loadMCPLayer(opts.agentPath, 'agent');
-  return mergeMCPConfigs([globalLayer, projectLayer, agentLayer]);
+function stripDefaults(layer: Record<string, MCPServerConfig>): Record<string, MergingMCPServerConfig> {
+  const out: Record<string, MergingMCPServerConfig> = {};
+  for (const [name, entry] of Object.entries(layer)) {
+    // Treat a resolved `shared` as a user-declared value — this is the
+    // safest interpretation for callers passing in already-resolved layers
+    // (they've made an explicit choice per entry).
+    out[name] = { ...entry };
+  }
+  return out;
 }
 
-/**
- * Field-level deep merge of layered MCP configs. Same-name servers
- * have their fields merged:
- *   - transport.env / transport.headers: key-level merge
- *   - transport.args: wholesale replace (lists aren't field-mergeable)
- *   - transport.command / url / type / cwd: overwrite
- *   - shared / prefix / enabled: overwrite
- */
-export function mergeMCPConfigs(
-  layers: Array<Record<string, MCPServerConfig>>,
-): Record<string, MCPServerConfig> {
-  const out: Record<string, MCPServerConfig> = {};
+function mergeRawLayers(
+  layers: Array<Record<string, MergingMCPServerConfig>>,
+): Record<string, MergingMCPServerConfig> {
+  const out: Record<string, MergingMCPServerConfig> = {};
   for (const layer of layers) {
     for (const [name, incoming] of Object.entries(layer)) {
       const existing = out[name];
@@ -142,51 +237,38 @@ export function mergeMCPConfigs(
   return out;
 }
 
-/**
- * Ensure an agent's workspace has a .mcp.json. If missing, writes a
- * default template that registers playwright-mcp as a per-agent server.
- * Idempotent — existing files are left untouched.
- */
-export function ensureDefaultAgentMCP(workspaceDir: string): void {
-  const path = join(workspaceDir, '.mcp.json');
-  if (existsSync(path)) return;
-
-  const template: RawMCPJson = {
-    mcpServers: {
-      playwright: {
-        command: 'npx',
-        args: ['-y', '@playwright/mcp@latest', '--headless'],
-      },
-    },
-  };
-
-  if (!existsSync(dirname(path))) mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(template, null, 2) + '\n', 'utf-8');
+function resolveDefaults(
+  merging: Record<string, MergingMCPServerConfig>,
+): Record<string, MCPServerConfig> {
+  const out: Record<string, MCPServerConfig> = {};
+  for (const [name, entry] of Object.entries(merging)) {
+    out[name] = {
+      transport: entry.transport,
+      // If no layer declared `shared`, the top-most contributing layer
+      // supplies the default: global → shared=true, project/agent → false.
+      shared: entry.shared ?? (entry.layer === 'global'),
+      prefix: entry.prefix,
+      enabled: entry.enabled,
+      layer: entry.layer,
+    };
+  }
+  return out;
 }
-
-// ============================================================
-// Internals
-// ============================================================
 
 function normalizeEntry(
   serverName: string,
   entry: RawMCPEntry,
   layer: MCPLayer,
-): MCPServerConfig {
+): MergingMCPServerConfig {
   const transport = inferTransport(serverName, entry);
-
-  // shared default depends on which layer the entry came from.
-  // Global-layer entries default to shared=true (global servers are the
-  // common case at that scope). Project and agent layers default to
-  // shared=false (scoped to the agent that asked for them).
-  const defaultShared = layer === 'global';
-  const shared = typeof entry.shared === 'boolean' ? entry.shared : defaultShared;
-
   return {
     transport,
-    shared,
-    prefix: entry.prefix ?? `${serverName}_`,
+    // Three-state: preserve user intent. Do NOT fill the layer default here —
+    // that happens only after all layers have merged, in resolveDefaults.
+    shared: typeof entry.shared === 'boolean' ? entry.shared : undefined,
+    prefix: entry.prefix ?? defaultMCPPrefix(serverName),
     enabled: entry.enabled ?? true,
+    layer,
   };
 }
 
@@ -231,12 +313,23 @@ function inferTransport(serverName: string, entry: RawMCPEntry): MCPTransportCon
   );
 }
 
-function mergeOne(base: MCPServerConfig, over: MCPServerConfig): MCPServerConfig {
+function mergeOne(
+  base: MergingMCPServerConfig,
+  over: MergingMCPServerConfig,
+): MergingMCPServerConfig {
   return {
     transport: mergeTransport(base.transport, over.transport),
-    shared: over.shared,
-    prefix: over.prefix ?? base.prefix,
-    enabled: over.enabled ?? base.enabled,
+    // Three-state merge: a later layer that didn't declare `shared` keeps
+    // whatever the base had. This is the whole point of the refactor —
+    // without this, project/agent layers would silently wipe a global
+    // shared=true because normalizeEntry used to fill shared=false.
+    shared: over.shared ?? base.shared,
+    // `prefix` and `enabled` always have a value in merging form (either
+    // the user's or the per-entry default); last writer wins.
+    prefix: over.prefix,
+    enabled: over.enabled,
+    // Attribute to whichever layer last contributed.
+    layer: over.layer,
   };
 }
 

@@ -55,7 +55,10 @@ async function createManager(agentTools?: string[]) {
 }
 
 describe('AgentManager tool wiring', () => {
-  it('mounts web_fetch, browser, and a graceful web_search stub by default', async () => {
+  it('mounts web_fetch and a graceful web_search stub by default', async () => {
+    // Browser automation is now provided via MCP (`@playwright/mcp`), so
+    // `browser` is no longer a built-in tool — the MCP layer registers
+    // `playwright_browser_*` tools on demand.
     const manager = await createManager();
 
     try {
@@ -65,7 +68,7 @@ describe('AgentManager tool wiring', () => {
       const toolNames = runtime!.tools.map(tool => tool.name);
       expect(toolNames).toContain('web_fetch');
       expect(toolNames).toContain('web_search');
-      expect(toolNames).toContain('browser');
+      expect(toolNames).not.toContain('browser');
 
       const webSearch = (manager.getAgent('coder') as any).tools.get('web_search');
       const result = await webSearch.execute({ query: 'berry claw' }, { cwd: manager.config.agentWorkspace('coder') });
@@ -77,7 +80,7 @@ describe('AgentManager tool wiring', () => {
   });
 
   it('filters mounted tools when entry.tools is set', async () => {
-    const manager = await createManager(['file', 'browser']);
+    const manager = await createManager(['file']);
 
     try {
       const runtime = manager.inspectAgent('coder').runtime;
@@ -88,7 +91,6 @@ describe('AgentManager tool wiring', () => {
       expect(toolNames).toContain('write_file');
       expect(toolNames).toContain('list_files');
       expect(toolNames).toContain('edit_file');
-      expect(toolNames).toContain('browser');
 
       expect(toolNames).not.toContain('shell');
       expect(toolNames).not.toContain('grep');

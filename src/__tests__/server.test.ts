@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer } from '../server.js';
+import { CONFIG_SCHEMA_VERSION } from '../engine/config-manager.js';
 import type { Server } from 'node:http';
 
 let server: Server;
@@ -65,7 +66,7 @@ describe('Config API (v2 schema: provider instances + models + tiers)', () => {
   it('GET /api/config returns config with masked keys', async () => {
     const res = await fetch(`${BASE}/api/config`);
     const data = await res.json();
-    expect(data.schemaVersion).toBe(2);
+    expect(data.schemaVersion).toBe(CONFIG_SCHEMA_VERSION);
     const inst = data.providerInstances['test-provider'];
     expect(inst).toBeDefined();
     expect(inst.apiKey).not.toBe('sk-test-key');

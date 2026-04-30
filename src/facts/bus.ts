@@ -16,7 +16,8 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { FactChange, AgentFact, TeamFact, SessionFact } from './types.js';
+import type { FactChange, AgentFact, TeamFact, SessionFact, SystemFact } from './types.js';
+import { SYSTEM_FACT_ID } from './types.js';
 
 export type FactListener = (change: FactChange) => void;
 
@@ -44,6 +45,14 @@ export class FactBus {
 
   emitSession(id: string, fact: SessionFact | null): void {
     this.emit({ kind: 'session', id, fact });
+  }
+
+  /**
+   * Emit the singleton SystemFact. Id is fixed to {@link SYSTEM_FACT_ID} —
+   * there is only ever one SystemFact at a time.
+   */
+  emitSystem(fact: SystemFact | null): void {
+    this.emit({ kind: 'system', id: SYSTEM_FACT_ID, fact });
   }
 
   /** Max listeners bump — WS server + optional observers may attach. */

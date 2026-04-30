@@ -33,14 +33,15 @@ export class MCPManager {
    */
   async startSharedServers(configs: Record<string, MCPServerConfig>): Promise<void> {
     for (const [name, config] of Object.entries(configs)) {
-      if (config.enabled === false) continue;
+      if (!config.enabled) continue;
       if (!config.shared) continue; // Only shared servers here
 
       try {
         const client = new MCPClient({ name, transport: config.transport });
         await client.connect();
-        const prefix = config.prefix ?? `${name}_`;
-        const tools = await createMCPTools(client, { prefix });
+        // prefix is always populated by mcp-config's normalizeEntry —
+        // no need to re-default here.
+        const tools = await createMCPTools(client, { prefix: config.prefix });
         this.sharedServers.set(name, { client, config, tools });
       } catch (err) {
         console.error(`[MCP] Failed to start shared server "${name}":`, err instanceof Error ? err.message : err);
@@ -60,14 +61,14 @@ export class MCPManager {
     const perAgent = new Map<string, ManagedServer>();
 
     for (const [name, config] of Object.entries(configs)) {
-      if (config.enabled === false) continue;
+      if (!config.enabled) continue;
       if (config.shared) continue; // Only per-agent servers here
 
       try {
         const client = new MCPClient({ name, transport: config.transport });
         await client.connect();
-        const prefix = config.prefix ?? `${name}_`;
-        const tools = await createMCPTools(client, { prefix });
+        // prefix is always populated by mcp-config's normalizeEntry.
+        const tools = await createMCPTools(client, { prefix: config.prefix });
         perAgent.set(name, { client, config, tools });
       } catch (err) {
         console.error(`[MCP] Failed to start per-agent server "${name}" for agent "${agentId}":`, err instanceof Error ? err.message : err);

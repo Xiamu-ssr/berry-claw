@@ -26,7 +26,6 @@ import type { TierId } from '@berry-agent/models';
 import { createObserver, createCollector, calculateCost, type Observer, type ModelPricing } from '@berry-agent/observe';
 import {
   createAllTools,
-  createBrowserTool,
   createWebFetchTool,
   createWebSearchTool,
   WEB_SEARCH_CREDENTIAL_KEYS,
@@ -42,16 +41,70 @@ import { join } from 'node:path';
 import { createFileMemoryProvider } from '@berry-agent/memory-file';
 import { selectProvider } from '@berry-agent/models';
 import { Team, type TeamState } from '@berry-agent/team';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync, copyFileSync, unlinkSync, renameSync } from 'node:fs';
 import { FactBus } from '../facts/bus.js';
-import { deriveAgentFact, deriveTeamFact } from '../facts/derive.js';
+import { deriveAgentFact, deriveTeamFact, deriveSystemFact } from '../facts/derive.js';
 import { MCPManager } from './mcp-manager.js';
 import { loadMergedMCPConfig, ensureDefaultAgentMCP } from './mcp-config.js';
+import { listInstalledSkillNamesSync, SkillMarketService } from './skill-market.js';
 
 /**
  * Pick a web_search provider based on which credential key is present.
  * Order of preference: Tavily → Brave → SerpAPI.
  */
+/**
+ * One-shot migration from layout v1 (`~/.berry-claw/sessions/<id>/*`) to
+ * layout v2 (`<workspace>/.berry/conversations/*`). Cheap on subsequent
+ * inits: after a successful move the legacy dir is renamed with a
+ * `.migrated` suffix, so the early-return on `existsSync(legacy)` hits
+ * immediately thereafter.
+ *
+ * - If the new dir already has data we do NOT merge — we assume the agent
+ *   has been used since the migration ran, or it's a fresh agent on v2
+ *   layout. Blind merging here could overwrite live conversations.
+ * - We copy+unlink rather than rename to survive the pathological case
+ *   where the user placed their workspace on a different volume from
+ *   `~/.berry-claw` (renameSync would EXDEV there).
+ */
+function migrateLegacySessionsDir(legacy: string, target: string): void {
+  if (!existsSync(legacy)) return;
+  let targetFiles: string[] = [];
+  try {
+    targetFiles = readdirSync(target);
+  } catch {
+    return;
+  }
+  if (targetFiles.length > 0) return;
+
+  let legacyFiles: string[];
+  try {
+    legacyFiles = readdirSync(legacy);
+  } catch {
+    return;
+  }
+
+  let moved = 0;
+  for (const f of legacyFiles) {
+    const src = join(legacy, f);
+    const dst = join(target, f);
+    try {
+      copyFileSync(src, dst);
+      unlinkSync(src);
+      moved += 1;
+    } catch (err) {
+      console.warn(`[layout-migration] failed to move ${src} → ${dst}:`, err);
+    }
+  }
+  if (moved > 0) {
+    try {
+      renameSync(legacy, `${legacy}.migrated`);
+    } catch {
+      /* non-fatal — worst case we re-enter this function and find no files */
+    }
+    console.log(`[layout-migration] moved ${moved} conversation file(s): ${legacy} → ${target}`);
+  }
+}
+
 function pickWebSearchProvider(credentials: CredentialStore): WebSearchProviderName | null {
   const order: WebSearchProviderName[] = ['tavily', 'brave', 'serpapi'];
   for (const provider of order) {
@@ -94,11 +147,12 @@ function buildTools(
     }
   }
 
+  // Browser automation is provided via MCP (`@playwright/mcp`), not as a
+  // built-in tool — see mcp-config.ts default template and MCPManager.
   const tools = [
     ...createAllTools(scope, shellOptions),
     createWebFetchTool(),
     buildWebSearchTool(credentials),
-    createBrowserTool(),
   ];
 
   if (entry.tools === undefined) return tools;
@@ -169,6 +223,12 @@ export class AgentManager {
   private restartScheduled = false;
   /** MCP server connection manager (shared + per-agent). */
   readonly mcpManager = new MCPManager();
+  /**
+   * Skill Market service. Browses the ClawHub registry and installs skill
+   * packages under `~/.berry-claw/skills/`. Construction is deferred to
+   * the constructor body so it can see `this.config`.
+   */
+  skillMarket!: SkillMarketService;
 
   constructor(options: AgentManagerOptions = {}) {
     this.config = new ConfigManager({ appDir: options.appDir });
@@ -190,6 +250,9 @@ export class AgentManager {
     };
     this.pricingOverrides = pricingOverrides;
     this.observer = createObserver({ dbPath: join(this.config.appDir, 'observe.db'), pricingOverrides });
+    // Skill market — browses external sources and installs under globalSkillsDir.
+    // Stateless service; safe to construct unconditionally on boot.
+    this.skillMarket = new SkillMarketService(this.config.globalSkillsDir());
     // Persisted defaultAgent may be empty; fall back to the first configured
     // agent so the app still boots into a usable state after restart.
     this.activeAgentId = this.config.defaultAgent || this.config.listAgents()[0]?.id || '';
@@ -203,6 +266,27 @@ export class AgentManager {
     return this.initAgent(id);
   }
 
+  /**
+   * Resolve a model spec ('tier:X' / 'model:X' / 'raw:...' / bare id) against
+   * the current registry and produce a core-compatible ProviderInput (static
+   * config OR resolver w/ failover). Used by every path that sets the agent's
+   * provider — init, reload, and switchModel — so failover wiring stays
+   * consistent and there's only one rotation log format.
+   */
+  private buildProviderInput(
+    agentId: string,
+    spec: string,
+  ): import('@berry-agent/core').ProviderInput {
+    return selectProvider(spec, this.config.toModelsRegistry(), {
+      onRotate: (from, to, err) => {
+        console.warn(
+          `[agent:${agentId}] provider failover: ${from.providerId} → ${to.providerId}`,
+          err,
+        );
+      },
+    });
+  }
+
   /** Initialize an agent from config */
   initAgent(agentId?: string): Agent {
     const id = agentId ?? this.activeAgentId;
@@ -212,24 +296,33 @@ export class AgentManager {
     // Resolve model spec ('tier:X' / 'model:X' / 'raw:...' / bare id) against
     // the registry view of the config, producing either a static ProviderConfig
     // (raw escape hatch) or a ProviderResolver with failover support.
-    const providerInput = selectProvider(entry.model, this.config.toModelsRegistry(), {
-      onRotate: (from, to, err) => {
-        console.warn(
-          `[agent:${id}] provider failover: ${from.providerId} → ${to.providerId}`,
-          err,
-        );
-      },
-    });
+    const providerInput = this.buildProviderInput(id, entry.model);
 
     const workspace = entry.workspace ?? this.config.agentWorkspace(id);
     if (!existsSync(workspace)) mkdirSync(workspace, { recursive: true });
 
     // Seed a default per-agent .mcp.json on first init so new agents
     // get playwright-mcp out of the box. No-op when the file exists.
-    ensureDefaultAgentMCP(workspace);
+    ensureDefaultAgentMCP(this.config.agentMCPPath(workspace));
 
-    const sessionsDir = join(this.config.appDir, 'sessions', id);
+    // Layout v2: conversation store colocated with the workspace alongside
+    // the SDK's own `.berry/memory.sqlite` and `.berry/sessions/` event log,
+    // instead of the legacy sibling `~/.berry-claw/sessions/<id>/` location.
+    // `migrateLegacySessionsDir` moves old data over on first init and is
+    // cheap on subsequent inits (the legacy dir gets renamed with a
+    // `.migrated` suffix so the early-return hits immediately).
+    const sessionsDir = this.config.agentConversationsDir(workspace);
     if (!existsSync(sessionsDir)) mkdirSync(sessionsDir, { recursive: true });
+    migrateLegacySessionsDir(join(this.config.appDir, 'sessions', id), sessionsDir);
+
+    // Per-agent skill pool. Auto-created even when empty so tools that
+    // enumerate it (future `create_skill`) don't have to race the first
+    // write. One-level scan in both the SDK and in
+    // `listInstalledSkillNamesSync` means a sibling `drafts/` subtree (for
+    // pending auto-generated skills) is naturally invisible to the agent
+    // until an entry is promoted out of it.
+    const perAgentSkillsDir = this.config.agentSkillsDir(workspace);
+    if (!existsSync(perAgentSkillsDir)) mkdirSync(perAgentSkillsDir, { recursive: true });
 
     // Resolve project root early so it is available for system prompt injection.
     const projectRoot = entry.project;
@@ -282,6 +375,33 @@ export class AgentManager {
     const store = new FileSessionStore(sessionsDir);
     this.agentSessionStores.set(id, store);
 
+    // Compose skill inputs: per-agent pool first (wins on name collision
+    // after the SDK's first-wins dedup), then user-configured custom
+    // skillDirs (trusted as-is — these are absolute paths the user set
+    // intentionally), then the global market pool.
+    //
+    // Visibility gated by `enabledSkills` whitelist for BOTH the per-agent
+    // and global pools: anything installed there but not explicitly enabled
+    // ends up on disabledSkills. This is what keeps self-authored skills
+    // from auto-activating the moment they land on disk — the user still
+    // has to check the box in Agents Tab.
+    const globalSkillsDir = this.config.globalSkillsDir();
+    const enabledSet = new Set(entry.enabledSkills ?? []);
+    const installedGlobal = listInstalledSkillNamesSync(globalSkillsDir);
+    const installedPerAgent = listInstalledSkillNamesSync(perAgentSkillsDir);
+    const marketBlacklist = installedGlobal.filter(n => !enabledSet.has(n));
+    const perAgentBlacklist = installedPerAgent.filter(n => !enabledSet.has(n));
+    const composedSkillDirs = [
+      perAgentSkillsDir,
+      ...(entry.skillDirs ?? []),
+      globalSkillsDir,
+    ];
+    const composedDisabledSkills = [
+      ...marketBlacklist,
+      ...perAgentBlacklist,
+      ...(entry.disabledSkills ?? []),
+    ];
+
     const agent = new Agent({
       provider: providerInput,
       reasoningEffort: entry.reasoningEffort,
@@ -291,7 +411,8 @@ export class AgentManager {
       workspace,
       project: projectRoot,
       memory: memoryProvider,
-      skillDirs: entry.skillDirs,
+      skillDirs: composedSkillDirs,
+      disabledSkills: composedDisabledSkills,
       sessionStore: store,
       toolGuard: compositeGuard(
         writeGuard,
@@ -392,9 +513,9 @@ export class AgentManager {
     const workspace = entry.workspace ?? this.config.agentWorkspace(agentId);
 
     const mcpConfigs = loadMergedMCPConfig({
-      globalPath: join(this.config.appDir, '.mcp.json'),
-      projectPath: entry.project ? join(entry.project, '.mcp.json') : undefined,
-      agentPath: join(workspace, '.mcp.json'),
+      globalPath: this.config.globalMCPPath(),
+      projectPath: entry.project ? this.config.projectMCPPath(entry.project) : undefined,
+      agentPath: this.config.agentMCPPath(workspace),
     });
     if (Object.keys(mcpConfigs).length === 0) return;
 
@@ -671,24 +792,23 @@ export class AgentManager {
     // No need to sync systemPrompt into session store — systemPrompt is now
     // sourced from the Agent instance (this.systemPrompt), not from Session.
 
-    // 2. Model (if changed) — hot swap via static ProviderConfig using the
-    //    first provider in the new model's binding. A full resolver swap on
-    //    hot reload would require tearing down the Agent instance, which the
-    //    reload path explicitly avoids.
-    let providerSwitched = false;
+    // 2. Model (if changed) — rebuild the full ProviderInput from the current
+    //    registry and hand it to the SDK. switchProvider now drops any stale
+    //    resolver attached to the Agent, so the magnetic "config.json is the
+    //    single source of truth" rule holds: next inference sees exactly what
+    //    the user asked for, no silent rollback.
     try {
       if (entry.model && entry.model !== cached.entry.model) {
-        const nextCfg = resolveStaticProviderConfig(entry.model, this.config);
-        if (nextCfg) {
-          cached.agent.switchProvider(nextCfg);
-          providerSwitched = true;
-        }
+        cached.agent.switchProvider(this.buildProviderInput(agentId, entry.model));
       }
     } catch (err) {
       console.warn(`[reload] model switch failed for ${agentId}:`, err);
     }
 
-    // 2.5 Reasoning effort (if changed)
+    // 2.5 Reasoning effort (if changed) — merge onto the current static
+    // ProviderConfig. Pass as a static config so the resolver (if any) is
+    // intentionally dropped; failover will resume when the user next changes
+    // the model (which rebuilds a fresh resolver via buildProviderInput).
     if (entry.reasoningEffort !== cached.entry.reasoningEffort) {
       const currentProvider = cached.agent.currentProvider;
       cached.agent.switchProvider({
@@ -740,9 +860,12 @@ export class AgentManager {
    * and the agent settings page show stale values after a switch.
    */
   switchModel(model: string): void {
-    const staticCfg = resolveStaticProviderConfig(model, this.config);
-    if (!staticCfg) throw new Error(`Model "${model}" not found`);
-    this.getAgent().switchProvider(staticCfg);
+    // Rebuild the full ProviderInput from the current registry (static config
+    // or resolver w/ failover — same semantics as initAgent). switchProvider
+    // drops any stale resolver so config.json remains the single source of
+    // truth; next inference sees the new model without silent rollback.
+    const input = this.buildProviderInput(this.activeAgentId, model);
+    this.getAgent().switchProvider(input);
 
     // Persist the model choice so the UI and currentModel() agree.
     const entry = this.config.getAgent(this.activeAgentId);
@@ -781,6 +904,15 @@ export class AgentManager {
     }
     const fact = await deriveTeamFact(team, { messageCount });
     this.factBus.emitTeam(leaderId, fact);
+  }
+
+  /**
+   * Derive + emit the singleton SystemFact. Call this after any mutation
+   * that changes global infra state visible in SystemFact — currently that
+   * means shared-MCP lifecycle events (start, disconnect, shutdown).
+   */
+  emitSystemFact(): void {
+    this.factBus.emitSystem(deriveSystemFact(this));
   }
 
   /** Live AgentInstance or undefined — used by fact derivers. */
@@ -1106,28 +1238,6 @@ export class AgentManager {
   close(): void { this.observer.close(); }
 }
 
-/**
- * Resolve a model spec (tier:X / model:X / raw:... / bare id) down to a
- * static ProviderConfig. Used by hot-swap paths that can't rewire the
- * Agent instance; chooses the binding's first provider and returns null
- * when the spec can't be resolved.
- */
-function resolveStaticProviderConfig(
-  spec: string,
-  config: ConfigManager,
-): import('@berry-agent/core').ProviderConfig | null {
-  try {
-    const registry = config.toModelsRegistry();
-    const resolved = selectProvider(spec, registry);
-    if ('resolve' in resolved && typeof (resolved as { resolve?: unknown }).resolve === 'function') {
-      return (resolved as { resolve: () => import('@berry-agent/core').ProviderConfig }).resolve();
-    }
-    return resolved as import('@berry-agent/core').ProviderConfig;
-  } catch {
-    // Bare model id that isn't in the registry? Fall back to first provider.
-    return config.toProviderConfig(spec);
-  }
-}
 
 function hydrateSessionState(session: Session, agentId?: string): import('./session-manager.js').SessionState {
   return {

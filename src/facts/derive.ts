@@ -11,7 +11,9 @@
 
 import type { Team } from '@berry-agent/team';
 import type { AgentManager } from '../engine/agent-manager.js';
-import type { AgentFact, TeamFact, SessionFact } from './types.js';
+import type { AgentFact, TeamFact, SessionFact, SystemFact, MCPServerFact } from './types.js';
+import { SYSTEM_FACT_ID } from './types.js';
+import { listInstalledSkillsSync } from '../engine/skill-market.js';
 
 /**
  * Build an AgentFact by combining:
@@ -30,6 +32,16 @@ export function deriveAgentFact(
   const status = manager.getAgentStatus(agentId);
   const provider = instance?.agent.currentProvider;
 
+  // Per-agent MCP snapshot. We read the full MCPManager status and pluck
+  // the slot for this agent — keeping the deriver the only place that
+  // reshapes MCPManager.getStatus() into fact form. Undefined (not empty
+  // array) when the agent has no registered per-agent servers yet.
+  const mcpStatus = manager.mcpManager.getStatus();
+  const perAgent = mcpStatus.perAgent[agentId];
+  const mcp: MCPServerFact[] | undefined = perAgent && perAgent.length > 0
+    ? perAgent.map((s) => ({ name: s.name, connected: s.connected, toolCount: s.toolCount }))
+    : undefined;
+
   return {
     id: agentId,
     name: entry.name,
@@ -46,7 +58,28 @@ export function deriveAgentFact(
     disabledTools: entry.disabledTools,
     skillDirs: entry.skillDirs,
     disabledSkills: entry.disabledSkills,
+    enabledSkills: entry.enabledSkills,
     reasoningEffort: entry.reasoningEffort,
+    mcp,
+  };
+}
+
+/**
+ * Build the singleton {@link SystemFact}. Today this covers shared MCP
+ * servers; more global infra state can accrete here without forcing a
+ * new channel.
+ */
+export function deriveSystemFact(manager: AgentManager): SystemFact {
+  const status = manager.mcpManager.getStatus();
+  const installedSkills = listInstalledSkillsSync(manager.config.globalSkillsDir());
+  return {
+    id: SYSTEM_FACT_ID,
+    mcpShared: status.shared.map((s) => ({
+      name: s.name,
+      connected: s.connected,
+      toolCount: s.toolCount,
+    })),
+    installedSkills,
   };
 }
 

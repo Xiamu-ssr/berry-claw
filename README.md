@@ -88,9 +88,13 @@ berry-claw is a thin product shell over [berry-agent-sdk](https://github.com/Xia
 | SDK Package | Usage |
 |---|---|
 | `@berry-agent/core` | Agent loop, sessions, providers, retry/timeout, compaction |
-| `@berry-agent/tools-common` | All built-in tools (read/write/edit/shell/search/web/browser) |
+| `@berry-agent/tools-common` | Built-in tools (read/write/edit/shell/search/web/browser) |
 | `@berry-agent/observe` | `createObserveRouter()` — drops in the whole observe REST API |
 | `@berry-agent/safe` | `compositeGuard(directoryScope, denyList)` for tool-guard policy |
+| `@berry-agent/mcp` | Wire MCP servers as Berry tools (shared + per-agent) |
+| `@berry-agent/memory-file` | File-system memory provider for agent long-term context |
+| `@berry-agent/models` | Unified model registry + provider tier resolution |
+| `@berry-agent/team` | Multi-agent orchestration (worklist, roles, leader) |
 
 ---
 

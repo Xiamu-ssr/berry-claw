@@ -16,10 +16,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Trash2, Check, Server, Pencil, X, Key, ExternalLink,
-  Layers, Zap, RefreshCw, ChevronDown, ChevronUp,
+  Layers, Zap, RefreshCw, ChevronDown, ChevronUp, Plug,
 } from 'lucide-react';
 import { showToast } from './Toast';
 import { API } from '../api/paths';
+import { useSystemFact } from '../facts/useFacts';
 
 // ============================================================
 // Types (mirror server payload shapes)
@@ -81,7 +82,7 @@ interface CredentialItem {
 // Top-level component
 // ============================================================
 
-type TabId = 'providers' | 'models' | 'tiers' | 'credentials';
+type TabId = 'providers' | 'models' | 'tiers' | 'credentials' | 'mcp';
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<TabId>('providers');
@@ -108,6 +109,7 @@ export default function SettingsPage() {
         <TabButton active={tab === 'models'} onClick={() => setTab('models')} icon={<Layers size={16} />} label="Models" />
         <TabButton active={tab === 'tiers'} onClick={() => setTab('tiers')} icon={<Zap size={16} />} label="Tiers" />
         <TabButton active={tab === 'credentials'} onClick={() => setTab('credentials')} icon={<Key size={16} />} label="Tool Credentials" />
+        <TabButton active={tab === 'mcp'} onClick={() => setTab('mcp')} icon={<Plug size={16} />} label="MCP" />
       </div>
 
       {tab === 'providers' && config && (
@@ -120,9 +122,82 @@ export default function SettingsPage() {
         <TiersTab config={config} onChange={refresh} />
       )}
       {tab === 'credentials' && <CredentialsTab />}
+      {tab === 'mcp' && <McpTab />}
     </div>
   );
 }
+
+// ============================================================
+// MCP tab — shared (global) MCP servers from SystemFact.
+// Per-agent MCP servers live on AgentsPage (per-agent inspect panel).
+// ============================================================
+
+function McpTab() {
+  const system = useSystemFact();
+  const shared = system?.mcpShared ?? [];
+
+  return (
+    <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+      <div className="mb-5">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+          <Plug size={20} /> Shared MCP Servers
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Global servers from <code>~/.berry/.mcp.json</code> and project <code>.mcp.json</code>.
+          Available to every agent. Per-agent servers appear on each agent's detail panel.
+        </p>
+      </div>
+
+      {shared.length === 0 ? (
+        <p className="text-sm text-gray-400 italic py-8 text-center">
+          No shared MCP servers configured.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {shared.map((s) => (
+            <McpServerRow key={s.name} server={s} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Shared row used by both SettingsPage (global) and AgentsPage (per-agent). */
+function McpServerRow({ server }: { server: { name: string; connected: boolean; toolCount: number } }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${
+            server.connected
+              ? 'bg-green-500'
+              : 'bg-gray-400 dark:bg-gray-500'
+          }`}
+          title={server.connected ? 'connected' : 'disconnected'}
+        />
+        <span className="font-mono font-medium text-gray-800 dark:text-gray-200 truncate">
+          {server.name}
+        </span>
+        <span
+          className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${
+            server.connected
+              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+          }`}
+        >
+          {server.connected ? 'connected' : 'disconnected'}
+        </span>
+      </div>
+      <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+        {server.toolCount} tool{server.toolCount !== 1 ? 's' : ''}
+      </span>
+    </div>
+  );
+}
+
+// Export for AgentsPage reuse.
+export { McpServerRow };
 
 /**
  * Form field wrapper — consistent label + optional hint + child control.

@@ -78,4 +78,13 @@ export const API = {
 
   // Teams listing (currently unused but reserved)
   teams: '/api/teams',
+
+  // Skill Market — global skill pool + external sources (ClawHub / GitHub).
+  skillsSources: '/api/skills/sources',
+  skillsAvailable: (source: string, q?: string) =>
+    `/api/skills/available?source=${encodeURIComponent(source)}` +
+    (q ? `&q=${encodeURIComponent(q)}` : ''),
+  skillsInstalled: '/api/skills/installed',
+  skillsInstall: '/api/skills/install',
+  skillsRemove: (name: string) => `/api/skills/${encodeURIComponent(name)}`,
 } as const;

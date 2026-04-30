@@ -13,7 +13,7 @@
  *   bailout covers the perf concern.
  */
 
-import type { AgentFact, TeamFact, SessionFact, FactChange, FactKind } from './types';
+import type { AgentFact, TeamFact, SessionFact, SystemFact, FactChange, FactKind } from './types';
 import { API } from '../api/paths';
 
 type Listener = () => void;
@@ -22,6 +22,8 @@ class FactStore {
   private agents = new Map<string, AgentFact>();
   private teams = new Map<string, TeamFact>();
   private sessions = new Map<string, SessionFact>();
+  /** Singleton — only ever one SystemFact keyed by {@link SYSTEM_FACT_ID}. */
+  private system: SystemFact | undefined;
 
   // Cached snapshot arrays. useSyncExternalStore requires getSnapshot to
   // return a stable reference when nothing changed — otherwise React bails
@@ -36,6 +38,7 @@ class FactStore {
     agent: new Set(),
     team: new Set(),
     session: new Set(),
+    system: new Set(),
   };
 
   /** One-time seed from the snapshot endpoint. Safe to call again (idempotent). */
@@ -59,13 +62,18 @@ class FactStore {
   }
 
   private applyChange(change: FactChange): void {
+    // SystemFact is a singleton, not a bucketed collection — shortcut here.
+    if (change.kind === 'system') {
+      this.system = change.fact ?? undefined;
+      return;
+    }
     const bucket = this.bucketFor(change.kind);
     if (change.fact === null) bucket.delete(change.id);
     else bucket.set(change.id, change.fact as never);
     this.rebuildCache(change.kind);
   }
 
-  private rebuildCache(kind: FactKind): void {
+  private rebuildCache(kind: Exclude<FactKind, 'system'>): void {
     if (kind === 'agent') {
       this.agentsList = [...this.agents.values()];
       this.activeAgentCache = this.agentsList.find((a) => a.isActive);
@@ -76,7 +84,9 @@ class FactStore {
     }
   }
 
-  private bucketFor(kind: FactKind): Map<string, AgentFact | TeamFact | SessionFact> {
+  private bucketFor(
+    kind: Exclude<FactKind, 'system'>,
+  ): Map<string, AgentFact | TeamFact | SessionFact> {
     switch (kind) {
       case 'agent': return this.agents as never;
       case 'team': return this.teams as never;
@@ -96,6 +106,8 @@ class FactStore {
 
   getAgent(id: string): AgentFact | undefined { return this.agents.get(id); }
   getTeam(id: string): TeamFact | undefined { return this.teams.get(id); }
+  /** Read the singleton SystemFact; undefined until the first hydrate/emit. */
+  getSystem(): SystemFact | undefined { return this.system; }
 
   /** Currently-active agent — cached, stable identity until it changes. */
   activeAgent(): AgentFact | undefined { return this.activeAgentCache; }
@@ -104,6 +116,7 @@ class FactStore {
     this.listenersByKind.agent.forEach((fn) => fn());
     this.listenersByKind.team.forEach((fn) => fn());
     this.listenersByKind.session.forEach((fn) => fn());
+    this.listenersByKind.system.forEach((fn) => fn());
   }
 }
 

@@ -25,7 +25,7 @@ const SDK_RANGES = {
   '@berry-agent/memory-file': '^0.4.0-alpha.0',
   '@berry-agent/models': '^0.1.0-alpha.0',
   '@berry-agent/team': '^0.1.0-alpha.0',
-  '@berry-agent/mcp': '^0.3.0-alpha.0',
+  '@berry-agent/mcp': '^0.3.1-alpha.0',
 };
 const FALLBACK_RANGE = '^0.3.0-alpha.0';
 

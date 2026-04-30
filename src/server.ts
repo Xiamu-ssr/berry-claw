@@ -9,10 +9,12 @@ import { resolve, join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { AgentManager } from './engine/agent-manager.js';
 import { loadMCPLayer } from './engine/mcp-config.js';
+import { CONFIG_SCHEMA_VERSION } from './engine/config-manager.js';
 import { createObserveRouter, fetchOpenRouterPricing } from '@berry-agent/observe';
 import type { AgentEvent } from '@berry-agent/core';
 import { WEB_SEARCH_CREDENTIAL_META, type CredentialKeyMeta } from '@berry-agent/tools-common';
-import { deriveAgentFact, deriveTeamFact } from './facts/derive.js';
+import { deriveAgentFact, deriveTeamFact, deriveSystemFact } from './facts/derive.js';
+import { SYSTEM_FACT_ID } from './facts/types.js';
 import { FACT_KINDS, type FactChange } from './facts/types.js';
 
 /**
@@ -51,12 +53,15 @@ export async function startServer(port: number, options: StartServerOptions = {}
   // Entries with shared=false are skipped inside MCPManager — they're
   // started per-agent in agent-manager's startAgentMCP().
   try {
-    const globalLayer = loadMCPLayer(join(manager.config.appDir, '.mcp.json'), 'global');
+    const globalLayer = loadMCPLayer(manager.config.globalMCPPath(), 'global');
     await manager.mcpManager.startSharedServers(globalLayer);
     const status = manager.mcpManager.getStatus();
     if (status.shared.length > 0) {
       console.log(`[MCP] Started ${status.shared.length} shared servers: ${status.shared.map(s => s.name).join(', ')}`);
     }
+    // Seed the initial SystemFact so WS subscribers that join after startup
+    // — and the /api/facts snapshot — see the shared-MCP state right away.
+    manager.emitSystemFact();
   } catch (err) {
     console.error('[MCP] Shared server startup failed:', err instanceof Error ? err.message : err);
   }
@@ -79,7 +84,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
       ]),
     );
     res.json({
-      schemaVersion: 2,
+      schemaVersion: CONFIG_SCHEMA_VERSION,
       providerInstances: maskedProviders,
       models: config.models,
       tiers: config.tiers,
@@ -333,9 +338,13 @@ export async function startServer(port: number, options: StartServerOptions = {}
         changes.push({ kind: 'team', id, fact });
       }
     }
+    if (kinds.includes('system')) {
+      // Singleton — always exactly one entry keyed by SYSTEM_FACT_ID.
+      changes.push({ kind: 'system', id: SYSTEM_FACT_ID, fact: deriveSystemFact(manager) });
+    }
     // session facts: not yet wired into FactBus; Phase 2 intentionally
-    // stops at agent + team. Session dimension added later once we define
-    // how session lifecycle events integrate with the bus.
+    // stops at agent + team + system. Session dimension added later once we
+    // define how session lifecycle events integrate with the bus.
 
     res.json({ changes });
   });
@@ -349,10 +358,9 @@ export async function startServer(port: number, options: StartServerOptions = {}
     res.json({ statuses: out });
   });
 
-  /** MCP server connection status */
-  app.get('/api/mcp/status', (_req, res) => {
-    res.json(manager.mcpManager.getStatus());
-  });
+  // MCP status now flows through the fact channel: GET /api/facts?kind=system
+  // for the snapshot, and the WS `fact_changed` channel for live updates.
+  // The old /api/mcp/status endpoint has been removed.
 
   /** Current context token size for the active session of an agent */
   app.get('/api/agents/:id/context-size', async (req, res) => {
@@ -367,10 +375,10 @@ export async function startServer(port: number, options: StartServerOptions = {}
 
   /** Create/update agent */
   app.put('/api/agents/:id', (req, res) => {
-    const { name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills } = req.body;
+    const { name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills, enabledSkills, reasoningEffort } = req.body;
     if (!name || !model) return res.status(400).json({ error: 'name and model required' });
     manager.config.setAgent(req.params.id, {
-      name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills,
+      name, systemPrompt, model, workspace, project, tools, disabledTools, skillDirs, disabledSkills, enabledSkills, reasoningEffort,
     });
     // Hot reload emits an AgentFact via the FactBus — all connected tabs
     // refresh off that single event.
@@ -400,6 +408,82 @@ export async function startServer(port: number, options: StartServerOptions = {}
     try {
       manager.switchAgent(req.params.id);
       res.json({ ok: true, activeAgent: req.params.id });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // ----------------------------
+  // Skill Market API
+  // ----------------------------
+  // Source listing + browse + install/uninstall. Writes flow through
+  // SkillMarketService (globalSkillsDir) and emit SystemFact on change
+  // so connected UIs refresh both the Skill Market tab and per-agent
+  // SkillsPanel off the same event.
+
+  /** List available sources (id, displayName, available flag). */
+  app.get('/api/skills/sources', async (_req, res) => {
+    try {
+      const sources = await manager.skillMarket.listSources();
+      res.json({ sources });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Browse / search one source. */
+  app.get('/api/skills/available', async (req, res) => {
+    const source = String(req.query.source ?? '');
+    const q = req.query.q ? String(req.query.q) : undefined;
+    if (source !== 'clawhub') {
+      return res.status(400).json({ error: 'source must be "clawhub"' });
+    }
+    try {
+      const items = await manager.skillMarket.list(source, q);
+      res.json({ items });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Snapshot of globally-installed skills. */
+  app.get('/api/skills/installed', async (_req, res) => {
+    try {
+      const installed = await manager.skillMarket.listInstalled();
+      res.json({ installed });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Install a skill from a source into the global pool. */
+  app.post('/api/skills/install', async (req, res) => {
+    const { sourceId, slug } = req.body ?? {};
+    if (sourceId !== 'clawhub' || typeof slug !== 'string' || !slug) {
+      return res.status(400).json({ error: 'sourceId ("clawhub") and slug required' });
+    }
+    try {
+      const installed = await manager.skillMarket.install(sourceId, slug);
+      // Broadcast new SystemFact so Skill Market / Agents SkillsPanel refresh.
+      manager.emitSystemFact();
+      res.json({ ok: true, installed });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  /** Uninstall a globally-installed skill by name. */
+  app.delete('/api/skills/:name', async (req, res) => {
+    try {
+      await manager.skillMarket.uninstall(req.params.name);
+      manager.emitSystemFact();
+      // Each agent's disabledSkills is computed at init time from the
+      // global pool — after uninstall that blacklist may shrink. Re-derive
+      // AgentFacts so connected UIs see the updated enabledSkills surface.
+      for (const { id } of manager.config.listAgents()) {
+        manager.emitAgentFact(id);
+      }
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }

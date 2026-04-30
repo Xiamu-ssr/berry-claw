@@ -12,7 +12,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { factStore } from './store';
-import type { AgentFact, TeamFact } from './types';
+import type { AgentFact, TeamFact, SystemFact } from './types';
 
 export function useAgentFacts(): AgentFact[] {
   return useSyncExternalStore(
@@ -46,6 +46,17 @@ export function useTeamFact(leaderId: string | undefined): TeamFact | undefined 
   return useSyncExternalStore(
     (fn) => factStore.subscribe('team', fn),
     () => (leaderId ? factStore.getTeam(leaderId) : undefined),
+  );
+}
+
+/**
+ * Singleton SystemFact — currently surfaces shared MCP servers.
+ * Returns undefined until the first hydrate/WS emission lands.
+ */
+export function useSystemFact(): SystemFact | undefined {
+  return useSyncExternalStore(
+    (fn) => factStore.subscribe('system', fn),
+    () => factStore.getSystem(),
   );
 }
 

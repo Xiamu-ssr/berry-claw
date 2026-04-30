@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Send, Loader2, Paperclip, X, ChevronDown, ChevronRight,
   MessageSquare, BarChart3, Settings, Bot, Users, Brain,
-  Terminal, CheckCircle, Copy, Check, Menu, Zap,
+  Terminal, CheckCircle, Copy, Check, Menu, Zap, Sparkles,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +19,7 @@ import type { AgentFact } from './facts/types';
 import SettingsPage from './components/SettingsPage';
 import AgentsPage from './components/AgentsPage';
 import TeamsPage from './components/TeamsPage';
+import SkillMarketPage from './components/SkillMarketPage';
 import ObserveDashboard from './components/ObserveDashboard';
 import CodeBlock from './components/CodeBlock';
 
@@ -37,7 +38,7 @@ export default function App() {
   const [agentStatusDetail, setAgentStatusDetail] = useState<string | undefined>(undefined);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'team' | 'settings'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'observe' | 'agents' | 'team' | 'skills' | 'settings'>('chat');
 
   /* ---- streaming inference state ---- */
   const [streamingInferences, setStreamingInferences] = useState<InferenceInfo[]>([]);
@@ -454,6 +455,7 @@ export default function App() {
         <NavIcon icon={<Bot size={18} />} active={activeTab === 'agents'} onClick={() => setActiveTab('agents')} />
         <NavIcon icon={<Users size={18} />} active={activeTab === 'team'} onClick={() => setActiveTab('team')} />
         <NavIcon icon={<BarChart3 size={18} />} active={activeTab === 'observe'} onClick={() => setActiveTab('observe')} />
+        <NavIcon icon={<Sparkles size={18} />} active={activeTab === 'skills'} onClick={() => setActiveTab('skills')} />
         <div className="flex-1" />
         <NavIcon icon={<Settings size={18} />} active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </div>
@@ -561,6 +563,7 @@ export default function App() {
         {activeTab === 'observe' && <ObserveDashboard />}
         {activeTab === 'agents' && <AgentsPage />}
         {activeTab === 'team' && <TeamsPage />}
+        {activeTab === 'skills' && <SkillMarketPage />}
         {activeTab === 'settings' && <SettingsPage />}
       </div>
 
@@ -1329,18 +1332,29 @@ function ChatInput({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // Ctrl/Cmd+Enter = send. Bare Enter = newline (textarea default).
+              // While a turn is running, Ctrl+Enter routes to interject (instant
+              // message) so the user never loses the ability to inject input
+              // mid-turn.
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
-                handleSubmit();
+                if (!isLoading) {
+                  handleSubmit();
+                } else if (onInterject) {
+                  const text = input.trim();
+                  if (!text) return;
+                  onInterject(text);
+                  setInput('');
+                  if (textareaRef.current) textareaRef.current.style.height = 'auto';
+                }
               }
             }}
             onPaste={handlePaste}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
-            placeholder={`Ask ${agentName ?? 'agent'} anything... (Shift+Enter for new line)`}
+            placeholder={`Ask ${agentName ?? 'agent'} anything... (Ctrl/⌘+Enter to send, Enter for new line)`}
             rows={1}
             className="w-full bg-transparent text-sm text-gray-200 placeholder:text-gray-600 resize-none outline-none min-h-[20px] max-h-[200px] pr-20"
-            disabled={isLoading}
           />
           <input
             ref={fileInputRef}
@@ -1364,7 +1378,7 @@ function ChatInput({
           <button
             onClick={handleSubmit}
             disabled={(!input.trim() && attachments.length === 0) || isLoading}
-            title="Send (Enter)"
+            title="Send (Ctrl/⌘+Enter)"
             className="absolute right-3 bottom-3 w-8 h-8 rounded-lg bg-[#2563eb] text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-600 transition-colors"
           >
             {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -1418,7 +1432,7 @@ function ChatInput({
                   setInput('');
                   if (textareaRef.current) textareaRef.current.style.height = 'auto';
                 }}
-                disabled={isLoading || !input.trim()}
+                disabled={!input.trim()}
                 className="flex items-center gap-1 hover:text-amber-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 title="Send as interject (same-turn injection)"
               >

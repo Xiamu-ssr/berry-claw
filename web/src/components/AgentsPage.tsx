@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Trash2, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2, Network, List, BarChart3, DollarSign, MessageSquare, Terminal, Zap } from 'lucide-react';
+import { Plus, Trash2, Edit, Save, X, FolderOpen, ChevronDown, ChevronRight, Wrench, BookOpen, FileText, Loader2, Network, List, BarChart3, DollarSign, MessageSquare, Terminal, Zap, Plug, Sparkles } from 'lucide-react';
 import AgentsGraph from './AgentsGraph';
 import MemoryPanel from './MemoryPanel';
+import { McpServerRow } from './SettingsPage';
 import { showToast } from './Toast';
 import { API } from '../api/paths';
-import { useAgentFacts } from '../facts/useFacts';
-import type { AgentFact } from '../facts/types';
+import { useAgentFacts, useSystemFact } from '../facts/useFacts';
+import type { AgentFact, InstalledSkill, MCPServerFact } from '../facts/types';
 
 interface AgentEntry {
   id: string;
@@ -20,6 +21,8 @@ interface AgentEntry {
     disabledTools?: string[];
     skillDirs?: string[];
     disabledSkills?: string[];
+    /** Market-installed skill whitelist (names). */
+    enabledSkills?: string[];
     /** Present when this agent is a teammate — set by spawn_teammate. */
     team?: { leaderId: string; role: string };
   };
@@ -101,6 +104,7 @@ function factToEntry(fact: AgentFact): AgentEntry {
       disabledTools: fact.disabledTools,
       skillDirs: fact.skillDirs,
       disabledSkills: fact.disabledSkills,
+      enabledSkills: fact.enabledSkills,
     },
   };
 }
@@ -208,11 +212,18 @@ export default function AgentsPage() {
     if (agent.id) await loadInspect(agent.id);
   }, [loadInspect]);
 
-  // Models list is config-layer data, not per-agent runtime. Fetched once
-  // on mount; Settings mutations already trigger a local re-fetch there.
-  useEffect(() => {
+  // Models list is config-layer data, not per-agent runtime. We re-fetch on
+  // mount and every time the user opens the Create/Edit form — Settings
+  // mutations on the registry (provider order, labels, add/remove) only
+  // land in this component via a fresh GET /api/models. Without this,
+  // reordering providers in Settings leaves the "(providerName)" suffix
+  // here stale until the tab is reloaded.
+  const refetchModels = useCallback(() => {
     fetch(API.models).then(r => r.json()).then(d => setModels(d.models ?? []));
   }, []);
+  useEffect(() => {
+    refetchModels();
+  }, [refetchModels]);
 
   const handleCreate = async () => {
     if (!form.id || !form.name || !form.model) return;
@@ -253,6 +264,7 @@ export default function AgentsPage() {
   };
 
   const startEdit = (agent: AgentEntry) => {
+    refetchModels();
     setEditing(agent.id);
     setForm({
       id: agent.id,
@@ -283,7 +295,7 @@ export default function AgentsPage() {
               ><List size={13} />List</button>
             </div>
             <button
-              onClick={() => { setCreating(true); setViewMode('list'); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
+              onClick={() => { refetchModels(); setCreating(true); setViewMode('list'); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
               className="px-3 py-1.5 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-1.5 text-sm"
             >
               <Plus size={14} /> New Agent
@@ -314,7 +326,7 @@ export default function AgentsPage() {
               ><List size={13} />List</button>
             </div>
             <button
-              onClick={() => { setCreating(true); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
+              onClick={() => { refetchModels(); setCreating(true); setForm({ id: '', name: '', model: models[0]?.model || '', systemPrompt: '', project: '' }); }}
               className="px-4 py-2 bg-berry-600 hover:bg-berry-700 text-white rounded-lg flex items-center gap-2 transition-colors"
             >
               <Plus size={16} /> New Agent
@@ -377,7 +389,7 @@ export default function AgentsPage() {
             <p className="text-lg font-medium text-gray-700 dark:text-gray-200 mb-1">No agents yet</p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Create your first agent to start chatting</p>
             <button
-              onClick={() => setCreating(true)}
+              onClick={() => { refetchModels(); setCreating(true); }}
               className="inline-flex items-center gap-1.5 bg-berry-500 hover:bg-berry-600 text-white text-sm rounded-lg px-4 py-2"
             >
               <Plus size={16} /> Create Agent
@@ -481,12 +493,126 @@ export default function AgentsPage() {
                   <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                     <MemoryPanel agentId={agent.id} hasProject={!!agent.entry.project} />
                   </div>
+                  <MCPPanel mcp={agentFacts.find((f) => f.id === agent.id)?.mcp} />
+                  <SkillsPanel agentId={agent.id} enabled={agent.entry.enabledSkills ?? []} />
                 </>
               )}
             </div>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MCPPanel — per-agent MCP servers (reads AgentFact.mcp directly).
+// Shared/global MCP servers live on Settings → MCP tab.
+// ============================================================
+function MCPPanel({ mcp }: { mcp?: MCPServerFact[] }) {
+  if (!mcp || mcp.length === 0) return null;
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
+        <Plug size={14} /> MCP Servers
+        <span className="text-xs text-gray-400 font-normal">(per-agent)</span>
+      </h4>
+      <div className="space-y-2">
+        {mcp.map((s) => (
+          <McpServerRow key={s.name} server={s} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SkillsPanel — per-agent whitelist over globally-installed skills.
+//
+// The Skill Market pool lives at ~/.berry-claw/skills/ and is reflected
+// on SystemFact.installedSkills. This panel lets the user toggle which of
+// those skills are visible to a given agent — toggling sends a PATCH to
+// /api/agents/:id with the merged enabledSkills array; the server emits
+// an AgentFact update and the checkbox re-renders from the bus.
+// ============================================================
+function SkillsPanel({ agentId, enabled }: { agentId: string; enabled: string[] }) {
+  const system = useSystemFact();
+  const installed: InstalledSkill[] = system?.installedSkills ?? [];
+  const enabledSet = new Set(enabled);
+  const [pendingName, setPendingName] = useState<string | null>(null);
+
+  const toggle = async (name: string, on: boolean) => {
+    setPendingName(name);
+    const next = new Set(enabled);
+    if (on) next.add(name);
+    else next.delete(name);
+    try {
+      const res = await fetch(API.agent(agentId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabledSkills: [...next] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast(`${on ? 'Enabled' : 'Disabled'} ${name}`);
+    } catch (err: any) {
+      showToast(`Toggle failed: ${err.message}`, 'error');
+    } finally {
+      setPendingName(null);
+    }
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-2">
+        <Sparkles size={14} /> Market Skills
+        <span className="text-xs text-gray-400 font-normal">
+          (installed in global pool)
+        </span>
+      </h4>
+      {installed.length === 0 ? (
+        <div className="text-xs italic text-gray-500 dark:text-gray-400">
+          No skills installed globally yet. Visit the <b>Skill Market</b> tab to install some.
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {installed.map((s) => {
+            const on = enabledSet.has(s.name);
+            const busy = pendingName === s.name;
+            return (
+              <label
+                key={s.name}
+                className="flex items-start gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy}
+                  onChange={(e) => toggle(s.name, e.target.checked)}
+                  className="mt-0.5 accent-berry-500"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                      {s.name}
+                    </span>
+                    {s.source && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                        {s.source}
+                      </span>
+                    )}
+                    {busy && <Loader2 size={12} className="animate-spin text-gray-400" />}
+                  </div>
+                  {s.description && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                      {s.description}
+                    </div>
+                  )}
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

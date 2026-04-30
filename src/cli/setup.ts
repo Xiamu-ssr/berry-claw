@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBrowserRuntime, installBrowserRuntime } from './browser-runtime.js';
 import { prompt, closePrompt } from './prompt.js';
+import { CONFIG_SCHEMA_VERSION } from '../engine/config-manager.js';
 
 const APP_DIR = process.env.BERRY_CLAW_HOME ?? join(homedir(), '.berry-claw');
 
@@ -34,7 +35,7 @@ export async function runSetup(): Promise<void> {
       configPath,
       JSON.stringify(
         {
-          schemaVersion: 2,
+          schemaVersion: CONFIG_SCHEMA_VERSION,
           providerInstances: {},
           models: {},
           tiers: {},
