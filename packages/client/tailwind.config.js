@@ -3,7 +3,7 @@ export default {
   darkMode: 'class',
   content: [
     './index.html',
-    './renderer/src/**/*.{js,ts,jsx,tsx}',
+    './src/**/*.{js,ts,jsx,tsx}',
     // SDK observe UI components (cross-repo import)
     '../../../berry-agent-sdk/packages/observe/ui/src/**/*.{tsx,ts}',
   ],

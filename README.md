@@ -2,7 +2,7 @@
 
 Local-first agent workspace built on [Berry Agent SDK](https://github.com/Xiamu-ssr/berry-agent-sdk).
 
-Berry Claw is the product shell around the SDK: server instance management, multi-agent chat, projects, teams, skills, MCP, safety settings, prompt packs, and observability.
+Berry Claw is the product shell around the SDK: server instance management, a shared React client, multi-agent chat, projects, teams, skills, MCP, safety settings, prompt packs, and observability.
 
 ![Berry Claw inbox](docs/assets/berry-claw-inbox.png)
 
@@ -59,10 +59,18 @@ Paste the private key into the connect screen. The client stores known instances
 
 | Package | Purpose |
 | --- | --- |
-| `@berry-agent/claw-server` | Berry Claw server and `berry-claw` CLI |
+| `@berry-agent/claw-server` | Berry Claw server, `berry-claw` CLI, and bundled Web UI |
 | `@berry-agent/claw-contracts` | Shared REST/WebSocket/fact schemas |
 
-The renderer is a private workspace package and is bundled into `@berry-agent/claw-server` during publish.
+Private workspace packages:
+
+| Package | Purpose |
+| --- | --- |
+| `@berry-agent/claw-client` | Shared React/Vite client used by Web, mobile, and desktop shells |
+| `@berry-agent/claw-mobile` | Capacitor shell for Android/iOS packaging |
+| `@berry-agent/claw-desktop` | Electron desktop shell for macOS/Windows/Linux packaging |
+
+The client build is bundled into `@berry-agent/claw-server` during publish.
 
 ## Data Layout
 
@@ -101,7 +109,7 @@ npm run dev
 Development ports:
 
 - server: [http://localhost:3210](http://localhost:3210)
-- renderer: [http://127.0.0.1:3211](http://127.0.0.1:3211)
+- client: [http://127.0.0.1:3211](http://127.0.0.1:3211)
 
 Build and test:
 
@@ -117,11 +125,39 @@ npm pack --dry-run --workspace=@berry-agent/claw-contracts
 npm pack --dry-run --workspace=@berry-agent/claw-server
 ```
 
+## Platform Builds
+
+The UI source lives only once, in `packages/client`.
+
+```text
+packages/client   React/Vite client
+packages/mobile   Capacitor Android/iOS shell
+packages/desktop  Electron desktop shell
+packages/server   Node server + CLI + bundled Web UI
+```
+
+Android setup:
+
+```bash
+npm -w @berry-agent/claw-mobile run add:android
+npm -w @berry-agent/claw-mobile run apk:debug
+```
+
+Desktop build:
+
+```bash
+npm -w @berry-agent/claw-desktop run build
+```
+
+GitHub releases should attach every built platform artifact available for that
+version: npm server/contracts, desktop installers, and mobile APK/AAB files.
+The `Release` GitHub Actions workflow does this automatically for `v*` tags.
+
 ## SDK Boundary
 
 Berry Claw should not duplicate SDK-owned runtime logic. The product owns:
 
-- UI state
+- UI state and platform shell state
 - server instance auth
 - provider/model configuration UX
 - global/project/agent setting surfaces

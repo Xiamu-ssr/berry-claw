@@ -1,0 +1,22 @@
+appId: com.berryclaw.desktop
+productName: Berry Claw
+electronVersion: 42.0.1
+directories:
+  output: dist
+files:
+  - src/**
+  - package.json
+extraResources:
+  - from: ../client/dist
+    to: client
+mac:
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+    - zip
+linux:
+  target:
+    - AppImage

@@ -39,7 +39,7 @@ function headersToObject(init: HeadersInit | undefined): Record<string, string> 
 
 /**
  * `apiFetch` is the universal authenticated fetch wrapper. Every REST call
- * from the renderer goes through it so:
+ * from the client goes through it so:
  *
  *   - Dynamic apiBase — picks up whichever instance the user has active
  *     without re-building the bundle or touching a global.

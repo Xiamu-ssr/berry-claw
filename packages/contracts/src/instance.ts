@@ -3,13 +3,13 @@ import { z } from 'zod';
 /**
  * A berry-claw client-side instance record.
  *
- * The renderer (and Electron shell, later) persists these locally to remember
+ * The client shell persists these locally to remember
  * which backends the user has connected to. The CLI may eventually import this
  * type to emit ready-to-paste JSON alongside `key show`, so keep it stable.
  *
  * Private key material is stored in `privateKeyPem` (PEM, Ed25519). At the
- * renderer-only stage this lives in `localStorage`; once the Electron main
- * process lands, we route it through `safeStorage` with the same shape.
+ * browser-only stage this lives in `localStorage`; native mobile/desktop shells
+ * should route it through platform secure storage with the same shape.
  */
 export const zInstance = z.object({
   /** Locally unique id (crypto.randomUUID). */

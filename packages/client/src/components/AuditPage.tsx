@@ -1,4 +1,4 @@
-import { ObserveApp } from '../../../../../../berry-agent-sdk/packages/observe/ui/src';
+import { ObserveApp } from '../../../../../berry-agent-sdk/packages/observe/ui/src';
 import { API, apiFetch } from '../api/paths';
 import { WorkbenchPage } from './workbench';
 

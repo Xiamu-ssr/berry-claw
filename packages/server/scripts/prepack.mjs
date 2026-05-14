@@ -14,7 +14,7 @@ const ROOT = resolve(__dirname, '..');
 const MONOREPO_ROOT = resolve(ROOT, '../..');
 const PKG_PATH = resolve(ROOT, 'package.json');
 const BACKUP_PATH = resolve(ROOT, 'package.json.prepack-backup');
-const WEB_DIST_SRC = resolve(MONOREPO_ROOT, 'packages/electron/renderer/dist');
+const WEB_DIST_SRC = resolve(MONOREPO_ROOT, 'packages/client/dist');
 const WEB_DIST_DEST = resolve(ROOT, 'web-dist');
 const BUILTIN_SKILLS_SRC = resolve(MONOREPO_ROOT, 'skills/builtin');
 const BUILTIN_SKILLS_DEST = resolve(ROOT, 'skills/builtin');
@@ -47,16 +47,20 @@ for (const [name, spec] of Object.entries(pkg.dependencies ?? {})) {
     changed++;
   }
 }
+if (pkg.dependencies?.['@berry-agent/claw-contracts']) {
+  pkg.dependencies['@berry-agent/claw-contracts'] = `^${pkg.version}`;
+  changed++;
+}
 
 writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n');
-console.log(`prepack: rewrote ${changed} SDK deps (per-package ranges)`);
+console.log(`prepack: rewrote ${changed} publish deps`);
 
 if (!existsSync(WEB_DIST_SRC)) {
-  throw new Error(`prepack: missing renderer build at ${WEB_DIST_SRC}. Run npm run build from the berry-claw root before publishing.`);
+  throw new Error(`prepack: missing client build at ${WEB_DIST_SRC}. Run npm run build from the berry-claw root before publishing.`);
 }
 rmSync(WEB_DIST_DEST, { recursive: true, force: true });
 cpSync(WEB_DIST_SRC, WEB_DIST_DEST, { recursive: true });
-console.log('prepack: copied renderer dist into server package');
+console.log('prepack: copied client dist into server package');
 
 if (!existsSync(BUILTIN_SKILLS_SRC)) {
   throw new Error(`prepack: missing built-in skills at ${BUILTIN_SKILLS_SRC}`);

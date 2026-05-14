@@ -1,0 +1,21 @@
+{
+  "name": "@berry-agent/claw-mobile",
+  "version": "0.5.0-alpha.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-client run build && cap sync",
+    "sync": "cap sync",
+    "add:android": "cap add android",
+    "open:android": "cap open android",
+    "apk:debug": "npm run build && test -d android && (cd android && ./gradlew assembleDebug)",
+    "apk:release": "npm run build && test -d android && (cd android && ./gradlew assembleRelease)"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.3.4"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4"
+  }
+}

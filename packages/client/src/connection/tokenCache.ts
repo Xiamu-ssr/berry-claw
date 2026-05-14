@@ -6,7 +6,7 @@
  * Keeping them RAM-only avoids an extra class of "stale token in localStorage
  * survives key rotation" bugs.
  *
- * A `BroadcastChannel` mirrors updates across tabs so two renderer windows
+ * A `BroadcastChannel` mirrors updates across tabs so two client windows
  * pointed at the same instance don't each pay for a challenge round-trip. We
  * fall back silently when the API is missing (older Safari, some test envs) —
  * callers just refetch on their own.

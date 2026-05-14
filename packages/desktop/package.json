@@ -1,0 +1,18 @@
+{
+  "name": "@berry-agent/claw-desktop",
+  "version": "0.5.0-alpha.2",
+  "description": "Desktop shell for Berry Claw",
+  "author": "Xiamu-ssr",
+  "private": true,
+  "type": "module",
+  "main": "src/main.cjs",
+  "scripts": {
+    "dev": "electron src/main.cjs",
+    "pack": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-client run build && electron-builder --dir",
+    "build": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-client run build && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "42.0.1",
+    "electron-builder": "^26.8.1"
+  }
+}

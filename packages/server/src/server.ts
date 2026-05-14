@@ -1092,7 +1092,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
   // ============================
 
   const packagedWebDist = resolve(import.meta.dirname, '../web-dist');
-  const monorepoWebDist = resolve(import.meta.dirname, '../../electron/renderer/dist');
+  const monorepoWebDist = resolve(import.meta.dirname, '../../client/dist');
   const webDist = process.env.BERRY_CLAW_WEB_DIST
     ? resolve(process.env.BERRY_CLAW_WEB_DIST)
     : existsSync(packagedWebDist)

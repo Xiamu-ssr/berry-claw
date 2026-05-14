@@ -23,7 +23,7 @@ import { Modal, ModalBody, ModalFooter, ModalHeader } from './ui/Modal';
  * the ConnectSetupScreen in modal mode; "Replace key" opens a minimal
  * "paste PEM" dialog that pre-flights the new key before persisting.
  *
- * This file is intentionally the one place in the renderer that mutates the
+ * This file is intentionally the one place in the client that mutates the
  * connection store directly — other components read through the hooks.
  */
 export function ConnectionsTab() {

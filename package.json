@@ -6,11 +6,16 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,green \"npm -w @berry-agent/claw-server run dev\" \"npm -w @berry-agent/claw-electron run dev:renderer\"",
+    "dev": "concurrently -n server,client -c blue,green \"npm -w @berry-agent/claw-server run dev\" \"npm -w @berry-agent/claw-client run dev\"",
     "dev:server": "npm -w @berry-agent/claw-server run dev",
-    "dev:web": "npm -w @berry-agent/claw-electron run dev:renderer",
-    "build": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-server run build && npm -w @berry-agent/claw-electron run build",
-    "test": "npm -w @berry-agent/claw-server test"
+    "dev:client": "npm -w @berry-agent/claw-client run dev",
+    "build": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-server run build && npm -w @berry-agent/claw-client run build",
+    "build:client": "npm -w @berry-agent/claw-client run build",
+    "build:desktop": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-desktop run build",
+    "build:mobile": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-mobile run build",
+    "test": "npm -w @berry-agent/claw-server test && npm -w @berry-agent/claw-client test",
+    "release:check": "npm run build && npm test && npm -w @berry-agent/claw-mobile run build && npm pack --dry-run --workspace=@berry-agent/claw-contracts --workspace=@berry-agent/claw-server",
+    "release:github": "node scripts/release-github.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
