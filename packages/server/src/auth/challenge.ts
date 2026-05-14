@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { nanoid } from 'nanoid';
-import type { AuthChallenge, SessionToken } from '@berry-claw/contracts';
+import type { AuthChallenge, SessionToken } from '@berry-agent/claw-contracts';
 import { loadIdentity, verifyNonceSignature, type KeyStore } from './keystore.js';
 
 export interface AuthStoreOptions {

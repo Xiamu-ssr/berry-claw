@@ -1,5 +1,5 @@
 {
-  "name": "@berry-claw/contracts",
+  "name": "@berry-agent/claw-contracts",
   "version": "0.5.0-alpha.0",
   "type": "module",
   "main": "dist/index.js",

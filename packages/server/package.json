@@ -1,5 +1,5 @@
 {
-  "name": "@berry-claw/server",
+  "name": "@berry-agent/claw-server",
   "version": "0.5.0-alpha.0",
   "description": "Berry Claw server and CLI",
   "type": "module",
@@ -31,7 +31,7 @@
     "@berry-agent/safe": "file:../../../berry-agent-sdk/packages/safe",
     "@berry-agent/team": "file:../../../berry-agent-sdk/packages/team",
     "@berry-agent/tools-common": "file:../../../berry-agent-sdk/packages/tools-common",
-    "@berry-claw/contracts": "*",
+    "@berry-agent/claw-contracts": "*",
     "@playwright/mcp": "0.0.73",
     "clawhub": "^0.12.0",
     "cors": "^2.8.5",

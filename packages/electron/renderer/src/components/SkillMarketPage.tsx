@@ -13,7 +13,7 @@ import {
 import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useSystemFact } from '../facts/useFacts';
 import { showToast } from './Toast';
-import type { InstalledSkill, SkillMarketItem } from '@berry-claw/contracts';
+import type { InstalledSkill, SkillMarketItem } from '@berry-agent/claw-contracts';
 import {
   EmptyState,
   IconButton,

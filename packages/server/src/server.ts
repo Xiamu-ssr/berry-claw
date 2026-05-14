@@ -14,8 +14,8 @@ import { createObserveRouter, fetchOpenRouterPricing } from '@berry-agent/observ
 import type { AgentEvent } from '@berry-agent/core';
 import { WEB_SEARCH_CREDENTIAL_META, type CredentialKeyMeta } from '@berry-agent/tools-common';
 import { deriveAgentFact, deriveTeamFact, deriveSystemFact } from './facts/derive.js';
-import { SYSTEM_FACT_ID } from '@berry-claw/contracts';
-import { FACT_KINDS, type FactChange } from '@berry-claw/contracts';
+import { SYSTEM_FACT_ID } from '@berry-agent/claw-contracts';
+import { FACT_KINDS, type FactChange } from '@berry-agent/claw-contracts';
 import {
   SAFETY_LEVELS,
   asSafetyLevel,
@@ -28,8 +28,8 @@ import { randomUUID } from 'node:crypto';
 import { createKeyStore, generateIdentity, hasIdentity, loadIdentity } from './auth/keystore.js';
 import { AuthStore } from './auth/challenge.js';
 import { assertWsAuth, requireAuth } from './auth/middleware.js';
-import { zAuthChallengeRequest, zAuthVerifyRequest } from '@berry-claw/contracts';
-import type { ChatTimelineEvent } from '@berry-claw/contracts';
+import { zAuthChallengeRequest, zAuthVerifyRequest } from '@berry-agent/claw-contracts';
+import type { ChatTimelineEvent } from '@berry-agent/claw-contracts';
 import { ensurePromptPackDirectory, listPromptPacks } from '@berry-agent/prompt-pack';
 
 /**

@@ -24,7 +24,7 @@ import MemoryPanel from './MemoryPanel';
 import { showToast } from './Toast';
 import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useSystemFact } from '../facts/useFacts';
-import type { AgentFact, InstalledSkill, MCPServerFact, ReasoningEffort, SafetyLevel } from '@berry-claw/contracts';
+import type { AgentFact, InstalledSkill, MCPServerFact, ReasoningEffort, SafetyLevel } from '@berry-agent/claw-contracts';
 import {
   EmptyState,
   Field,

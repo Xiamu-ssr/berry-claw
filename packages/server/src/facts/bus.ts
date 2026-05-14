@@ -16,8 +16,8 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { FactChange, AgentFact, TeamFact, SessionFact, SystemFact } from '@berry-claw/contracts';
-import { SYSTEM_FACT_ID } from '@berry-claw/contracts';
+import type { FactChange, AgentFact, TeamFact, SessionFact, SystemFact } from '@berry-agent/claw-contracts';
+import { SYSTEM_FACT_ID } from '@berry-agent/claw-contracts';
 
 export type FactListener = (change: FactChange) => void;
 

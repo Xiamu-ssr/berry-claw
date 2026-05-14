@@ -13,7 +13,7 @@
  *   bailout covers the perf concern.
  */
 
-import type { AgentFact, TeamFact, SessionFact, SystemFact, FactChange, FactKind } from '@berry-claw/contracts';
+import type { AgentFact, TeamFact, SessionFact, SystemFact, FactChange, FactKind } from '@berry-agent/claw-contracts';
 import { API, apiFetch } from '../api/paths';
 
 type Listener = () => void;

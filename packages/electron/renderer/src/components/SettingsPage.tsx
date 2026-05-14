@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { showToast } from './Toast';
 import { API, apiFetch } from '../api/paths';
-import type { MCPServerFact, SafetyLevel } from '@berry-claw/contracts';
+import type { MCPServerFact, SafetyLevel } from '@berry-agent/claw-contracts';
 import { ConnectionsTab } from './ConnectionsTab';
 import {
   EmptyState,

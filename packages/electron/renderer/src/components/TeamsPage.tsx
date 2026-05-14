@@ -33,7 +33,7 @@ import {
   TextInput,
   WorkbenchPage,
 } from './workbench';
-import type { AgentFact, TeamFact } from '@berry-claw/contracts';
+import type { AgentFact, TeamFact } from '@berry-agent/claw-contracts';
 
 interface TeammateRecord {
   id: string;

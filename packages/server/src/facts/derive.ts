@@ -11,8 +11,8 @@
 
 import type { Team } from '@berry-agent/team';
 import type { AgentManager } from '../engine/agent-manager.js';
-import type { AgentFact, TeamFact, SessionFact, SystemFact, MCPServerFact } from '@berry-claw/contracts';
-import { SYSTEM_FACT_ID } from '@berry-claw/contracts';
+import type { AgentFact, TeamFact, SessionFact, SystemFact, MCPServerFact } from '@berry-agent/claw-contracts';
+import { SYSTEM_FACT_ID } from '@berry-agent/claw-contracts';
 import { listInstalledSkillsSync } from '../engine/skill-market.js';
 
 /**

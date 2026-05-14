@@ -4,8 +4,8 @@
  * wire-level schema.
  *
  * We keep this tiny file instead of letting every module import from
- * `@berry-claw/contracts` directly so there is exactly one seam to widen when
+ * `@berry-agent/claw-contracts` directly so there is exactly one seam to widen when
  * we start layering renderer-only fields on top (e.g. UI preferences).
  */
-export { zInstance, zInstanceList } from '@berry-claw/contracts';
-export type { Instance, InstanceList } from '@berry-claw/contracts';
+export { zInstance, zInstanceList } from '@berry-agent/claw-contracts';
+export type { Instance, InstanceList } from '@berry-agent/claw-contracts';

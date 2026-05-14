@@ -6,11 +6,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,green \"npm -w @berry-claw/server run dev\" \"npm -w @berry-claw/electron run dev:renderer\"",
-    "dev:server": "npm -w @berry-claw/server run dev",
-    "dev:web": "npm -w @berry-claw/electron run dev:renderer",
-    "build": "npm -w @berry-claw/contracts run build && npm -w @berry-claw/server run build && npm -w @berry-claw/electron run build",
-    "test": "npm -w @berry-claw/server test"
+    "dev": "concurrently -n server,web -c blue,green \"npm -w @berry-agent/claw-server run dev\" \"npm -w @berry-agent/claw-electron run dev:renderer\"",
+    "dev:server": "npm -w @berry-agent/claw-server run dev",
+    "dev:web": "npm -w @berry-agent/claw-electron run dev:renderer",
+    "build": "npm -w @berry-agent/claw-contracts run build && npm -w @berry-agent/claw-server run build && npm -w @berry-agent/claw-electron run build",
+    "test": "npm -w @berry-agent/claw-server test"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

@@ -40,12 +40,12 @@ import type {
   TodoItem,
   ToolCallInfo,
   WsIncoming,
-} from '@berry-claw/contracts';
+} from '@berry-agent/claw-contracts';
 import { API, apiFetch } from './api/paths';
 import { useActiveInstance } from './connection';
 import { factStore } from './facts/store';
 import { useAgentFacts, useFactHydration, useTeamFacts } from './facts/useFacts';
-import type { AgentFact } from '@berry-claw/contracts';
+import type { AgentFact } from '@berry-agent/claw-contracts';
 import SettingsPage from './components/SettingsPage';
 import AgentsPage from './components/AgentsPage';
 import { SafetyAskDialog, type PendingSafetyAsk } from './components/SafetyAskDialog';

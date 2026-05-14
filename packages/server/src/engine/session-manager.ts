@@ -4,7 +4,7 @@
  */
 // (previously imported Agent/Session/AgentEvent/QueryResult — none used;
 //  session state is passed in as plain structural objects.)
-import type { ChatStep, ChatTimelineEvent, ChatTimelineItem, ToolCallInfo } from '@berry-claw/contracts';
+import type { ChatStep, ChatTimelineEvent, ChatTimelineItem, ToolCallInfo } from '@berry-agent/claw-contracts';
 
 export interface InferenceInfo {
   /** Model id used for this inference round */

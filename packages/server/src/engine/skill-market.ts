@@ -37,7 +37,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { loadSkill, loadSkillsFromDir } from '@berry-agent/core';
-import type { InstalledSkill } from '@berry-claw/contracts';
+import type { InstalledSkill } from '@berry-agent/claw-contracts';
 
 const execFileP = promisify(execFile);
 

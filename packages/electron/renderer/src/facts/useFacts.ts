@@ -12,7 +12,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { factStore } from './store';
-import type { AgentFact, TeamFact, SystemFact } from '@berry-claw/contracts';
+import type { AgentFact, TeamFact, SystemFact } from '@berry-agent/claw-contracts';
 
 export function useAgentFacts(): AgentFact[] {
   return useSyncExternalStore(

@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { AlertTriangle, Brain, CheckCircle, ChevronDown, ChevronRight, CircleDot, Layers, Loader2, Network, ShieldCheck, Wrench } from 'lucide-react';
 import CodeBlock from './CodeBlock';
 import ToolCallCard from './ToolCallCard';
-import type { ChatMessage, ChatStep, ChatTimelineEvent, ChatTimelineItem, InferenceInfo, ToolCallInfo } from '@berry-claw/contracts';
+import type { ChatMessage, ChatStep, ChatTimelineEvent, ChatTimelineItem, InferenceInfo, ToolCallInfo } from '@berry-agent/claw-contracts';
 
 interface MessageBubbleProps {
   message: ChatMessage;

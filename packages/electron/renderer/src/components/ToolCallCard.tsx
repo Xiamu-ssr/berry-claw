@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Terminal, ChevronDown, ChevronRight, CheckCircle, XCircle, Loader2, ArrowRight, ArrowLeft, CircleDot,
 } from 'lucide-react';
-import type { ToolCallInfo } from '@berry-claw/contracts';
+import type { ToolCallInfo } from '@berry-agent/claw-contracts';
 
 interface ToolCallCardProps {
   tool: ToolCallInfo;

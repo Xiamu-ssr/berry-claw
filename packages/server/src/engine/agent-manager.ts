@@ -22,7 +22,7 @@ import type {
   AgentSnapshot,
   SessionEvent,
 } from '@berry-agent/core';
-import type { ChatStep, ChatTimelineEvent, ChatTimelineItem, InferenceInfo, ToolCallInfo } from '@berry-claw/contracts';
+import type { ChatStep, ChatTimelineEvent, ChatTimelineItem, InferenceInfo, ToolCallInfo } from '@berry-agent/claw-contracts';
 import type { AskBridge } from '@berry-agent/safe';
 import { buildToolGuard, resolveSafetyLevel, type SafetyLevel } from './safety.js';
 import { createBerryTools } from './berry-tools.js';

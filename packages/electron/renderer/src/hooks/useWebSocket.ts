@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
-import type { WsIncoming, WsOutgoing } from '@berry-claw/contracts';
+import type { WsIncoming, WsOutgoing } from '@berry-agent/claw-contracts';
 import { useActiveInstance } from '../connection/store';
 import { clearToken, ensureToken } from '../connection';
 
