@@ -1091,9 +1091,13 @@ export async function startServer(port: number, options: StartServerOptions = {}
   // Static frontend (production)
   // ============================
 
+  const packagedWebDist = resolve(import.meta.dirname, '../web-dist');
+  const monorepoWebDist = resolve(import.meta.dirname, '../../electron/renderer/dist');
   const webDist = process.env.BERRY_CLAW_WEB_DIST
     ? resolve(process.env.BERRY_CLAW_WEB_DIST)
-    : resolve(import.meta.dirname, '../../electron/renderer/dist');
+    : existsSync(packagedWebDist)
+      ? packagedWebDist
+      : monorepoWebDist;
   if (existsSync(webDist)) {
     app.use(express.static(webDist));
     app.get('/{*splat}', (_req, res) => {

@@ -5,14 +5,19 @@
  *
  * package.json is restored by scripts/postpack.mjs after npm finishes packing.
  */
-import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
+const MONOREPO_ROOT = resolve(ROOT, '../..');
 const PKG_PATH = resolve(ROOT, 'package.json');
 const BACKUP_PATH = resolve(ROOT, 'package.json.prepack-backup');
+const WEB_DIST_SRC = resolve(MONOREPO_ROOT, 'packages/electron/renderer/dist');
+const WEB_DIST_DEST = resolve(ROOT, 'web-dist');
+const BUILTIN_SKILLS_SRC = resolve(MONOREPO_ROOT, 'skills/builtin');
+const BUILTIN_SKILLS_DEST = resolve(ROOT, 'skills/builtin');
 
 // Alpha-channel release ranges, per-package. Different sub-packages ship on
 // different minor tracks (e.g. memory-file landed later), so a single range
@@ -45,3 +50,18 @@ for (const [name, spec] of Object.entries(pkg.dependencies ?? {})) {
 
 writeFileSync(PKG_PATH, JSON.stringify(pkg, null, 2) + '\n');
 console.log(`prepack: rewrote ${changed} SDK deps (per-package ranges)`);
+
+if (!existsSync(WEB_DIST_SRC)) {
+  throw new Error(`prepack: missing renderer build at ${WEB_DIST_SRC}. Run npm run build from the berry-claw root before publishing.`);
+}
+rmSync(WEB_DIST_DEST, { recursive: true, force: true });
+cpSync(WEB_DIST_SRC, WEB_DIST_DEST, { recursive: true });
+console.log('prepack: copied renderer dist into server package');
+
+if (!existsSync(BUILTIN_SKILLS_SRC)) {
+  throw new Error(`prepack: missing built-in skills at ${BUILTIN_SKILLS_SRC}`);
+}
+mkdirSync(dirname(BUILTIN_SKILLS_DEST), { recursive: true });
+rmSync(BUILTIN_SKILLS_DEST, { recursive: true, force: true });
+cpSync(BUILTIN_SKILLS_SRC, BUILTIN_SKILLS_DEST, { recursive: true });
+console.log('prepack: copied built-in skills into server package');

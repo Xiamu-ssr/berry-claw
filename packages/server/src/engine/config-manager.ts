@@ -12,7 +12,7 @@
  * early.
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { AgentHome } from '@berry-agent/core';
@@ -409,13 +409,15 @@ export class ConfigManager {
    * Every agent picks them up as global-scoped skills, read-only at
    * runtime (the user's `globalSkillsDir()` is a separate, writable pool).
    *
-   * Resolved via `import.meta.url` so the path is correct whether the
-   * server runs from `src/` (tsx) or `dist/` (compiled). Both layouts
-   * climb to the workspace root because built-in skills stay outside the
-   * server package in this monorepo layout.
+   * Resolved via `import.meta.url` so the path is correct both in the
+   * monorepo and in the published npm package. The package-local copy is
+   * created by prepack; the repo-root path is the source of truth in dev.
    */
   builtinSkillsDir(): string {
-    return fileURLToPath(new URL('../../../../skills/builtin', import.meta.url));
+    const here = dirname(fileURLToPath(import.meta.url));
+    const packageLocal = join(here, '../../skills/builtin');
+    if (existsSync(packageLocal)) return packageLocal;
+    return join(here, '../../../../skills/builtin');
   }
 
   /**

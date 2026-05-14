@@ -1,6 +1,6 @@
 {
   "name": "@berry-agent/claw-server",
-  "version": "0.5.0-alpha.0",
+  "version": "0.5.0-alpha.1",
   "description": "Berry Claw server and CLI",
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "files": [
     "dist",
-    "../../skills/builtin",
+    "skills",
+    "web-dist",
     "README.md"
   ],
   "scripts": {

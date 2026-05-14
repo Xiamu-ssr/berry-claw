@@ -1,136 +1,139 @@
-# berry-claw 🐾
+# Berry Claw
 
-A local-first AI agent product built on [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk) — multi-provider, multi-agent, with a built-in observability dashboard.
+Local-first agent workspace built on [Berry Agent SDK](https://github.com/Xiamu-ssr/berry-agent-sdk).
 
-> eating our own dog food
+Berry Claw is the product shell around the SDK: server instance management, multi-agent chat, projects, teams, skills, MCP, safety settings, prompt packs, and observability.
 
----
+![Berry Claw inbox](docs/assets/berry-claw-inbox.png)
+
+![Berry Claw agent configuration](docs/assets/berry-claw-agents.png)
 
 ## Install
 
 ```bash
-npm install -g berry-claw
+npm install -g @berry-agent/claw-server@alpha
 ```
 
-Or one-shot via `npx`:
+Requires Node.js 20 or newer.
+
+## Quick Start
 
 ```bash
-npx berry-claw
+berry-claw start
 ```
 
-Requires **Node.js ≥ 20**.
+Open [http://localhost:3210](http://localhost:3210).
 
----
-
-## Quick start
+Berry Claw uses instance keys for local client authentication. To connect another browser or desktop shell:
 
 ```bash
-# 1. First-time setup (creates ~/.berry-claw/, asks about optional deps)
-berry-claw setup
-
-# 2. Launch server + Web UI
-berry-claw
-
-# 3. Open http://localhost:3210 and add a provider + agent in Settings.
+berry-claw key show
 ```
 
-That's it. No config file to hand-edit; the Web UI walks you through it.
-
----
+Paste the private key into the connect screen. The client stores known instances locally and will reconnect on later visits.
 
 ## CLI
 
-| Command | What it does |
-|---|---|
-| `berry-claw` | Start server + Web UI (default) |
-| `berry-claw start` | Same as above (explicit) |
-| `berry-claw setup` | First-time setup wizard |
-| `berry-claw doctor` | Environment self-check |
-| `berry-claw install browser` | Install the browser runtime for the `browser` tool |
-| `berry-claw version` | Print version |
-| `berry-claw help` | Show help |
+| Command | Purpose |
+| --- | --- |
+| `berry-claw start` | Start the server and serve the built Web UI |
+| `berry-claw key show` | Print the current server identity and private client key |
+| `berry-claw key reset --force` | Rotate the instance key and revoke old clients |
+| `berry-claw doctor` | Check local runtime readiness |
+| `berry-claw install browser` | Install the browser runtime used by browser tools |
+| `berry-claw config get <scope> [key]` | Inspect provider, model, tier, or agent config |
+| `berry-claw config set <scope> <key> <value>` | Update config from CLI |
 
-### Environment
+## Product Surface
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `PORT` | `3210` | HTTP port |
-| `BERRY_CLAW_HOME` | `~/.berry-claw` | Data directory (agents, sessions, observe DB, config) |
+- Inbox: event-first session UI backed by SDK `events.jsonl`, with provider context coming from `messages.json`.
+- Agents: per-agent identity, project binding, prompt pack, model, memory, skills, MCP, tools, and safety override.
+- Projects: project-level context and shared `.berry` data.
+- Teams: leader/teammate roster, worklist, and team message surfaces.
+- Skills: global skill market and per-agent enablement.
+- MCP: global, project, and agent MCP layers.
+- Settings: backend instances, providers, models, tiers, credentials, and global safety.
+- Audit: observe data from SDK/server usage, cost, guard, and inference events.
 
----
+## Published Packages
 
-## What's inside
+| Package | Purpose |
+| --- | --- |
+| `@berry-agent/claw-server` | Berry Claw server and `berry-claw` CLI |
+| `@berry-agent/claw-contracts` | Shared REST/WebSocket/fact schemas |
 
-- **Multi-provider**: Anthropic / OpenAI-compatible. Route requests by model name.
-- **Multi-agent**: Create/switch/inspect agents with their own tools, skills, and workspace.
-- **Chat UI**: Streaming WebSocket, tool-call view, session history.
-- **Observability**: Cost, cache hit-rate, guard decisions, compaction timeline, turn-level inference detail.
-- **Settings UI**: Provider + agent + credentials management.
+The renderer is a private workspace package and is bundled into `@berry-agent/claw-server` during publish.
 
----
+## Data Layout
 
-## Optional capabilities
+Default home:
 
-Some features need extra runtime assets that aren't shipped by default:
-
-| Capability | Install | Why it's optional |
-|---|---|---|
-| Browser tool | `berry-claw install browser` | Downloads Chromium (~150 MB). Only needed if you let agents drive real pages. |
-
-`berry-claw doctor` will tell you what's missing.
-
----
-
-## SDK integration
-
-berry-claw is a thin product shell over [berry-agent-sdk](https://github.com/Xiamu-ssr/berry-agent-sdk):
-
-| SDK Package | Usage |
-|---|---|
-| `@berry-agent/core` | Agent loop, sessions, providers, retry/timeout, compaction |
-| `@berry-agent/tools-common` | Built-in tools (read/write/edit/shell/search/web/browser) |
-| `@berry-agent/observe` | `createObserveRouter()` — drops in the whole observe REST API |
-| `@berry-agent/safe` | `compositeGuard(directoryScope, denyList)` for tool-guard policy |
-| `@berry-agent/mcp` | Wire MCP servers as Berry tools (shared + per-agent) |
-| `@berry-agent/memory-file` | File-system memory provider for agent long-term context |
-| `@berry-agent/models` | Unified model registry + provider tier resolution |
-| `@berry-agent/team` | Multi-agent orchestration (worklist, roles, leader) |
-
----
-
-## Data layout
-
-```
+```text
 ~/.berry-claw/
-├── config.json          # providers + agents + credentials (mode 0600)
-├── observe.db           # SQLite: cost, cache, guard, turns, inferences
+├── config.json
+├── instance.key
 ├── agents/
-│   └── <agent-id>/      # each agent's isolated workspace
-└── sessions/
-    └── <agent-id>/*.json
+│   └── <agent-id>/
+│       ├── AGENTS.md
+│       ├── MEMORY.md
+│       └── sessions/
+│           └── <session-id>/
+│               ├── messages.json
+│               └── events.jsonl
+├── prompt-packs/
+├── skills/
+└── observe.db
 ```
 
----
+Override with:
 
-## Develop
+```bash
+BERRY_CLAW_HOME=/path/to/home berry-claw start
+```
 
-From a clone of the repo:
+## Development
 
 ```bash
 npm install
-npm run dev               # backend (3210) + Vite dev server (3211)
-npm test                  # unit tests
+npm run dev
 ```
 
-Run the built CLI against the local code:
+Development ports:
+
+- server: [http://localhost:3210](http://localhost:3210)
+- renderer: [http://127.0.0.1:3211](http://127.0.0.1:3211)
+
+Build and test:
 
 ```bash
 npm run build
-node dist/cli.js doctor
+npm test
 ```
 
----
+Publish dry-run:
+
+```bash
+npm pack --dry-run --workspace=@berry-agent/claw-contracts
+npm pack --dry-run --workspace=@berry-agent/claw-server
+```
+
+## SDK Boundary
+
+Berry Claw should not duplicate SDK-owned runtime logic. The product owns:
+
+- UI state
+- server instance auth
+- provider/model configuration UX
+- global/project/agent setting surfaces
+- product facts and WebSocket transport
+
+The SDK owns:
+
+- agent lifecycle
+- provider messages and compaction
+- event log append/read format
+- tools, MCP adapters, skills, prompt packs, memory, and safety primitives
 
 ## Status
 
-Alpha. Functional but rough edges. Primary purpose right now is SDK validation.
+Alpha. The project is intentionally optimized for fast iteration over backward compatibility.
