@@ -1,57 +1,21 @@
 {
   "name": "berry-claw",
-  "version": "0.1.0-alpha.0",
-  "description": "AI agent product built on berry-agent-sdk",
+  "private": true,
   "type": "module",
-  "bin": {
-    "berry-claw": "dist/cli.js"
-  },
-  "files": [
-    "dist",
-    "web/dist",
-    "README.md"
+  "workspaces": [
+    "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"tsx watch src/main.ts\" \"cd web && npm run dev\"",
-    "dev:server": "tsx watch src/main.ts",
-    "dev:web": "cd web && npm run dev",
-    "build": "npm run build:server && npm run build:web",
-    "build:server": "tsc",
-    "build:web": "cd web && npm install --no-audit --no-fund && npm run build",
-    "start": "node dist/cli.js",
-    "prepack": "node scripts/prepack.mjs",
-    "postpack": "node scripts/postpack.mjs",
-    "prepublishOnly": "npm run build",
-    "test": "vitest run"
+    "dev": "concurrently -n server,web -c blue,green \"npm -w @berry-claw/server run dev\" \"npm -w @berry-claw/electron run dev:renderer\"",
+    "dev:server": "npm -w @berry-claw/server run dev",
+    "dev:web": "npm -w @berry-claw/electron run dev:renderer",
+    "build": "npm -w @berry-claw/contracts run build && npm -w @berry-claw/server run build && npm -w @berry-claw/electron run build",
+    "test": "npm -w @berry-claw/server test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "@berry-agent/core": "file:../berry-agent-sdk/packages/core",
-    "@berry-agent/mcp": "file:../berry-agent-sdk/packages/mcp",
-    "@berry-agent/memory-file": "file:../berry-agent-sdk/packages/memory-file",
-    "@berry-agent/models": "file:../berry-agent-sdk/packages/models",
-    "@berry-agent/observe": "file:../berry-agent-sdk/packages/observe",
-    "@berry-agent/safe": "file:../berry-agent-sdk/packages/safe",
-    "@berry-agent/team": "file:../berry-agent-sdk/packages/team",
-    "@berry-agent/tools-common": "file:../berry-agent-sdk/packages/tools-common",
-    "clawhub": "^0.12.0",
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "nanoid": "^5.1.0",
-    "playwright-core": "^1.59.1",
-    "ws": "^8.18.0"
-  },
-  "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
-    "@types/node": "^22.0.0",
-    "@types/ws": "^8.18.0",
-    "concurrently": "^9.0.0",
-    "dotenv": "^17.4.1",
-    "tsx": "^4.19.0",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
   }
 }

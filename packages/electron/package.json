@@ -1,0 +1,37 @@
+{
+  "name": "@berry-claw/electron",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:renderer": "node scripts/dev-renderer.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@berry-agent/avatar": "file:../../../berry-agent-sdk/packages/avatar",
+    "@berry-claw/contracts": "*",
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.5.0",
+    "@xyflow/react": "^12.10.2",
+    "lucide-react": "^0.511.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^15.6.1",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@vitejs/plugin-react": "^4.5.0",
+    "autoprefixer": "^10.4.21",
+    "jsdom": "^25.0.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.0",
+    "vitest": "^3.2.4"
+  }
+}

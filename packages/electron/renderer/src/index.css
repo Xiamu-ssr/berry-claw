@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .settings-input {
+    @apply px-3 py-2 text-sm rounded-lg
+           bg-[#1a1a1a]
+           border border-[#2a2a2a]
+           text-gray-200
+           placeholder:text-gray-500
+           focus:outline-none focus:ring-2 focus:ring-berry-500 focus:border-transparent
+           disabled:opacity-60 disabled:cursor-not-allowed
+           transition-colors;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #0d0d0d;
+  color: #e5e5e5;
+}
+
+.image-render-pixelated,
+.image-render-pixelated img {
+  image-rendering: pixelated;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Markdown code blocks */
+.prose pre {
+  border-radius: 8px;
+  margin: 8px 0;
+  background: #1a1a1a !important;
+}
+
+.prose code {
+  font-size: 0.875rem;
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  color: #e5e5e5;
+}
+
+/* GFM table styles */
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 0.875rem;
+}
+.prose th, .prose td {
+  border: 1px solid #2a2a2a;
+  padding: 6px 12px;
+  text-align: left;
+}
+.prose th {
+  background: #1a1a1a;
+  font-weight: 600;
+  color: #e5e5e5;
+}
+.prose td {
+  color: #ccc;
+}
+
+/* Links in markdown */
+.prose a {
+  color: #818cf8;
+  text-decoration: underline;
+}
+.prose a:hover {
+  color: #a5b4fc;
+}
+
+/* Toast animation */
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in {
+  animation: slide-in 0.2s ease-out;
+}
