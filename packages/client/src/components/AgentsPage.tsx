@@ -482,14 +482,14 @@ function AgentListItem({
   const avatar = useMemo(() => agentAvatar(agent, 48), [agent]);
 
   return (
-            <button
+    <button
       onClick={onSelect}
-              className={`w-full rounded-lg border p-3 text-left transition-colors ${
+      className={`w-full rounded-xl border p-3 text-left transition-colors ${
         selected
-                  ? 'border-emerald-400/30 bg-emerald-400/10'
-                  : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.13] hover:bg-white/[0.05]'
-              }`}
-            >
+          ? 'border-zinc-400/25 bg-white/[0.075]'
+          : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.13] hover:bg-white/[0.05]'
+      }`}
+    >
       <div className="flex items-center gap-3">
         <PixelPortrait src={avatar.dataUri} alt="" size="sm" active={active} />
         <div className="min-w-0 flex-1">
@@ -505,7 +505,7 @@ function AgentListItem({
           </div>
           <div className="mt-1 truncate text-[11px] text-zinc-600" title={agent.project ?? agent.workspace}>
             {agent.project ? lastPathPart(agent.project) : 'workspace only'}
-              </div>
+          </div>
         </div>
       </div>
     </button>
@@ -544,14 +544,14 @@ function AgentHero({
   const toolCount = runtime?.tools?.length ?? agent.tools?.length ?? 0;
 
   return (
-    <section className="relative overflow-hidden rounded-xl border border-emerald-400/15 bg-[#10130f]">
-      <div className="absolute inset-0 opacity-[0.16] [background-image:linear-gradient(rgba(52,211,153,.45)_1px,transparent_1px),linear-gradient(90deg,rgba(52,211,153,.45)_1px,transparent_1px)] [background-size:16px_16px]" />
+    <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035]">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
       <div className="relative grid gap-5 p-5 lg:grid-cols-[132px_minmax(0,1fr)_260px]">
         <div className="flex items-start justify-center lg:justify-start">
           <PixelPortrait src={avatar.dataUri} alt={`${agent.name} avatar`} size="lg" active={active} />
         </div>
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-emerald-300/70">agent identity</div>
+          <div className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">agent identity</div>
           <div className="flex flex-wrap items-center gap-2">
             <StatusDot status={agent.status} />
             <h2 className="truncate text-2xl font-semibold text-zinc-50">{agent.name}</h2>
@@ -566,7 +566,7 @@ function AgentHero({
             <span>{loading ? 'inspecting...' : agent.instantiated ? 'runtime ready' : 'cold'}</span>
           </div>
           <div className="mt-2 truncate font-mono text-[11px] text-zinc-600">{agent.workspace}</div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <AbilitySlot
               icon={<Brain size={16} />}
               label="Context"
@@ -625,7 +625,7 @@ function AgentHero({
             />
           </div>
         </div>
-        <div className="flex flex-col gap-2 rounded-lg border border-white/[0.07] bg-black/25 p-3">
+        <div className="flex flex-col gap-2 rounded-xl border border-white/[0.07] bg-black/20 p-3">
           <div className="text-xs font-medium text-zinc-300">主体操作</div>
           <div className="grid gap-2">
           {!active && (
@@ -1044,15 +1044,15 @@ function AbilitySlot({
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className={`relative overflow-hidden rounded-lg border p-3 text-left transition-colors ${
+      className={`relative overflow-hidden rounded-xl border p-3 text-left transition-colors ${
         active
-          ? 'border-emerald-400/35 bg-emerald-400/12 shadow-[0_0_18px_rgba(52,211,153,0.10)]'
+          ? 'border-zinc-300/25 bg-white/[0.075]'
           : 'border-white/[0.08] bg-black/20 hover:border-white/[0.14] hover:bg-white/[0.045]'
       }`}
     >
-      <div className="absolute right-2 top-2 text-emerald-300/10">{icon}</div>
+      <div className="absolute right-2 top-2 text-white/[0.04]">{icon}</div>
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-zinc-600">
-        <span className="text-emerald-300/70">{icon}</span>
+        <span className={active ? 'text-zinc-200' : 'text-zinc-500'}>{icon}</span>
         {label}
       </div>
       <div className="mt-3 truncate text-sm font-medium text-zinc-100">{value}</div>

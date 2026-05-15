@@ -182,13 +182,13 @@ function TeamStage({
     : [];
 
   return (
-    <section className="relative overflow-hidden rounded-xl border border-emerald-400/15 bg-[#10130f] p-4">
-      <div className="absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(52,211,153,.45)_1px,transparent_1px),linear-gradient(90deg,rgba(52,211,153,.45)_1px,transparent_1px)] [background-size:18px_18px]" />
+    <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-zinc-300/25 to-transparent" />
       <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] uppercase tracking-[0.24em] text-emerald-300/70">team roster</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">team roster</div>
               <h2 className="mt-1 truncate text-lg font-semibold text-zinc-50">{selectedTeam?.name ?? '未选择团队'}</h2>
               <div className="mt-1 truncate font-mono text-[11px] text-zinc-600">{selectedTeam?.project ?? ''}</div>
             </div>
@@ -235,7 +235,7 @@ function TeamStage({
                 onClick={() => onSelect(team)}
                 className={`w-full rounded-lg border p-3 text-left transition-colors ${
                   team.leaderId === selectedTeam?.leaderId
-                    ? 'border-emerald-400/30 bg-emerald-400/10'
+                    ? 'border-zinc-400/25 bg-white/[0.075]'
                     : 'border-white/[0.07] bg-black/15 hover:border-white/[0.13] hover:bg-white/[0.05]'
                 }`}
               >
@@ -259,7 +259,7 @@ function TeamPortrait({ id, name, active }: { id: string; name: string; active?:
   return (
     <div
       className={`image-render-pixelated relative mx-auto flex h-16 w-16 items-center justify-center border p-1 ${
-        active ? 'border-amber-300/60 bg-amber-300/10 shadow-[0_0_24px_rgba(251,191,36,0.16)]' : 'border-white/[0.10] bg-black/35'
+        active ? 'border-amber-300/50 bg-amber-300/10 shadow-[0_16px_45px_rgba(0,0,0,0.22)]' : 'border-white/[0.10] bg-black/25'
       }`}
       style={{ clipPath: 'polygon(0 8px, 8px 8px, 8px 0, calc(100% - 8px) 0, calc(100% - 8px) 8px, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 8px calc(100% - 8px), 0 calc(100% - 8px))' }}
     >
@@ -439,7 +439,7 @@ function TeamDetail({ leaderId, onBack }: { leaderId: string; onBack: () => void
 
   return (
     <div className="space-y-4">
-      <SectionCard>
+      <SectionCard className="bg-white/[0.025]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-200">

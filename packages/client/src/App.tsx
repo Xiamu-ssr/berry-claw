@@ -721,7 +721,7 @@ export default function App() {
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
         />
 
-        <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-x border-white/[0.07] bg-[#0e0f11] max-md:border-x-0">
+        <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-x border-white/[0.07] bg-[#111214] max-md:border-x-0">
           <MobileTopNav
             activeView={activeView}
             onViewChange={setActiveView}
@@ -1140,7 +1140,7 @@ function InboxView({
 
   return (
     <>
-      <div className="flex h-14 items-center justify-between gap-3 border-b border-white/[0.07] px-4">
+      <div className="flex h-16 items-center justify-between gap-3 border-b border-white/[0.07] bg-[#101113]/95 px-4 backdrop-blur">
         <AgentSwitcher
           agents={agents}
           selectedAgent={selectedAgent}
@@ -1172,11 +1172,11 @@ function InboxView({
 
       <ContextProgressBar used={contextTokensUsed} window={contextWindow} />
 
-      <div className={`grid min-h-0 flex-1 ${rightPanelOpen ? 'grid-cols-[minmax(0,1fr)_300px]' : 'grid-cols-1'} max-lg:grid-cols-1`}>
+      <div className={`grid min-h-0 flex-1 ${rightPanelOpen ? 'grid-cols-[minmax(0,1fr)_320px]' : 'grid-cols-1'} max-lg:grid-cols-1`}>
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="min-h-0 overflow-y-auto px-4 py-5"
+          className="min-h-0 overflow-y-auto px-4 py-6"
         >
           {messages.length === 0 && !hasStreamingContent && !isLoading ? (
             <EmptyInbox agent={selectedAgent} onNewSession={onNewSession} newSessionDisabled={newSessionDisabled} />
@@ -1253,10 +1253,10 @@ function SessionRail({
   onNewSession: () => void;
 }) {
   return (
-    <aside className="min-h-0 overflow-y-auto border-l border-white/[0.07] bg-[#0a0b0c] p-3 max-lg:hidden">
+    <aside className="min-h-0 overflow-y-auto border-l border-white/[0.07] bg-[#0d0e10] p-4 max-lg:hidden">
       <TodoRail todos={todos} />
 
-      <div className="mb-3 mt-4 flex items-center justify-between gap-2">
+      <div className="mb-3 mt-5 flex items-center justify-between gap-2">
         <div className="text-xs font-medium text-zinc-400">Sessions</div>
         <button
           type="button"
@@ -1282,7 +1282,7 @@ function SessionRail({
                 onClick={() => onResumeSession(session.id)}
                 className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
                   active
-                    ? 'border-emerald-400/30 bg-emerald-400/10'
+                    ? 'border-zinc-400/25 bg-white/[0.075]'
                     : 'border-white/[0.06] bg-white/[0.025] hover:border-white/[0.12] hover:bg-white/[0.05]'
                 }`}
               >
@@ -1309,7 +1309,7 @@ function TodoRail({ todos }: { todos: TodoItem[] }) {
   const openCount = todos.filter((todo) => !todo.done).length;
 
   return (
-    <section className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-3">
+    <section className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="text-xs font-medium text-zinc-300">Todo</div>
         <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
@@ -1328,13 +1328,13 @@ function TodoRail({ todos }: { todos: TodoItem[] }) {
               className={`rounded-md border px-3 py-2 ${
                 todo.done
                   ? 'border-white/[0.05] bg-black/15 text-zinc-600'
-                  : 'border-emerald-400/15 bg-emerald-400/[0.06] text-zinc-200'
+                  : 'border-sky-400/15 bg-sky-400/[0.06] text-zinc-200'
               }`}
             >
               <div className="flex items-start gap-2">
                 <span
                   className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-                    todo.done ? 'bg-zinc-700' : 'bg-emerald-300'
+                    todo.done ? 'bg-zinc-700' : 'bg-sky-300'
                   }`}
                 />
                 <span className={`min-w-0 flex-1 text-xs leading-5 ${todo.done ? 'line-through' : ''}`}>
@@ -1404,7 +1404,7 @@ function AgentSwitcher({
                     }}
                     className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
                       active
-                        ? 'border-emerald-400/30 bg-emerald-400/10'
+                        ? 'border-zinc-400/25 bg-white/[0.075]'
                         : 'border-transparent hover:border-white/[0.08] hover:bg-white/[0.05]'
                     }`}
                   >
@@ -1571,19 +1571,21 @@ function EmptyInbox({
 }) {
 
   return (
-    <div className="flex h-full min-h-[420px] items-center justify-center">
+    <div className="flex h-full min-h-[480px] items-center justify-center">
       <div className="w-full max-w-2xl text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.10] bg-white/[0.04] text-zinc-300 shadow-[0_18px_60px_rgba(0,0,0,0.25)]">
           <Inbox size={24} />
         </div>
         <h2 className="text-xl font-semibold text-zinc-100">{agent?.name ?? '选择一个智能体开始'}</h2>
-        <p className="mx-auto mt-2 max-w-lg text-sm text-zinc-500">
-          收件箱承载当前 agent 的 session。消息历史来自 session events，agent 身份来自它的文件目录。
-        </p>
+        <div className="mx-auto mt-3 flex max-w-lg flex-wrap justify-center gap-2 text-xs text-zinc-500">
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1">{agent?.model ? modelShortName(agent.model) : '未选择模型'}</span>
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1">{agent?.project ? lastPathPart(agent.project) : '未绑定项目'}</span>
+          <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1">{agent?.status ?? 'idle'}</span>
+        </div>
         <button
           disabled={newSessionDisabled}
           onClick={onNewSession}
-          className="mt-6 inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 text-sm text-emerald-200 transition-colors hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-emerald-400/10"
+          className="mt-6 inline-flex h-10 items-center gap-2 rounded-xl border border-white/[0.10] bg-zinc-100 px-4 text-sm font-medium text-zinc-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
         >
           <RotateCcw size={14} />
           新会话
@@ -1634,9 +1636,9 @@ function ProjectsPage({
                 <button
                   key={project.key}
                   onClick={() => setSelectedKey(project.key)}
-                  className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                  className={`w-full rounded-xl border p-3 text-left transition-colors ${
                     project.key === selected?.key
-                      ? 'border-emerald-400/30 bg-emerald-400/10'
+                      ? 'border-zinc-400/25 bg-white/[0.075]'
                       : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.13] hover:bg-white/[0.05]'
                   }`}
                 >
@@ -1682,11 +1684,11 @@ function ProjectDetail({
   onOpenAgent: (agentId: string) => void;
 }) {
   return (
-    <section className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-[#10110f]">
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/40 to-transparent" />
+    <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035]">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent" />
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.07] px-4 py-4">
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-emerald-300/60">project dossier</div>
+          <div className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">project dossier</div>
           <h2 className="mt-1 truncate text-lg font-semibold text-zinc-100">{project.name}</h2>
           <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">{project.path}</div>
         </div>
@@ -1708,7 +1710,7 @@ function ProjectDetail({
                 onClick={() => onOpenAgent(agent.id)}
                 className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
                   agent.id === selectedAgentId
-                    ? 'border-emerald-400/30 bg-emerald-400/10'
+                    ? 'border-zinc-400/25 bg-white/[0.075]'
                     : 'border-white/[0.07] bg-black/10 hover:border-white/[0.14] hover:bg-white/[0.05]'
                 }`}
               >
@@ -1861,9 +1863,9 @@ function SafetyChoiceButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-md border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         active
-          ? 'border-emerald-400/35 bg-emerald-400/10'
+          ? 'border-zinc-300/25 bg-white/[0.075]'
           : 'border-white/[0.07] bg-white/[0.025] hover:border-white/[0.13] hover:bg-white/[0.05]'
       }`}
     >
@@ -2134,17 +2136,21 @@ function ChatInput({
   const modelChoices = uniqueStrings([model, ...modelOptions]);
 
   return (
-    <div className="border-t border-white/[0.06] bg-[#101010] px-4 py-3">
+    <div className="border-t border-white/[0.06] bg-[#101113]/95 px-4 py-3 backdrop-blur">
       <div className="mx-auto max-w-4xl">
         {queue.length > 0 && (
-          <div className="mb-2 space-y-1.5">
+          <div className="mb-2 space-y-1.5 rounded-2xl border border-white/[0.07] bg-black/20 p-2">
+            <div className="flex items-center justify-between px-1 pb-1 text-[10px] uppercase tracking-wide text-zinc-600">
+              <span>Queue</span>
+              <span>{queue.length} pending</span>
+            </div>
             {queue.map((item, index) => {
               const canInterject = !!onInterject && item.attachments.length === 0;
               const canSendNow = canInterject || !isLoading;
               return (
                 <div
                   key={item.id}
-                  className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.035] px-3 py-2 text-xs text-zinc-400"
+                  className="flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.035] px-3 py-2 text-xs text-zinc-400"
                 >
                   <span className="shrink-0 font-mono text-zinc-600">#{index + 1}</span>
                   <span className="min-w-0 flex-1 truncate text-zinc-300">
@@ -2158,7 +2164,7 @@ function ChatInput({
                   <button
                     type="button"
                     onClick={() => editQueuedPrompt(item.id)}
-                    className="shrink-0 rounded-md px-2 py-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+                    className="shrink-0 rounded-lg px-2 py-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
                   >
                     重新编辑
                   </button>
@@ -2167,7 +2173,7 @@ function ChatInput({
                     disabled={!canSendNow}
                     onClick={() => sendQueuedPromptNow(item.id)}
                     title={canInterject ? '立即插入当前回合' : '立即发送'}
-                    className="shrink-0 rounded-md px-2 py-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="shrink-0 rounded-lg px-2 py-1 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     立即发送
                   </button>
@@ -2198,7 +2204,7 @@ function ChatInput({
           </div>
         )}
 
-        <div className="relative rounded-xl border border-white/[0.08] bg-[#1a1a1a] px-3 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.20)]">
+        <div className="relative rounded-2xl border border-white/[0.10] bg-[#1b1c1f] px-4 py-3 shadow-[0_14px_50px_rgba(0,0,0,0.25)]">
           <textarea
             ref={textareaRef}
             value={input}
@@ -2214,7 +2220,7 @@ function ChatInput({
             onDragOver={(e) => e.preventDefault()}
             placeholder={`Ask ${agentName ?? 'agent'}...`}
             rows={1}
-            className="max-h-[180px] min-h-[24px] w-full resize-none bg-transparent pr-20 text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+            className="max-h-[180px] min-h-[28px] w-full resize-none bg-transparent pr-24 text-sm leading-7 text-zinc-100 outline-none placeholder:text-zinc-600"
           />
           <input
             ref={fileInputRef}
@@ -2230,7 +2236,7 @@ function ChatInput({
           <button
             onClick={() => fileInputRef.current?.click()}
             title="Attach image"
-            className="absolute bottom-3 right-12 flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+            className="absolute bottom-3 right-14 flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
           >
             <Paperclip size={16} />
           </button>
@@ -2238,7 +2244,7 @@ function ChatInput({
             onClick={handleSubmit}
             disabled={!input.trim() && attachments.length === 0}
             title="加入发送队列"
-            className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-100 text-zinc-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-35"
+            className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-35"
           >
             <Send size={16} />
           </button>

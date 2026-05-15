@@ -15,10 +15,10 @@ export function WorkbenchPage({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0e0f11] text-zinc-200">
-      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-white/[0.07] px-5 py-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#111214] text-zinc-200">
+      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-white/[0.07] bg-[#101113]/95 px-5 py-4 backdrop-blur">
         <div className="min-w-0">
-          {eyebrow && <div className="text-[11px] font-medium uppercase tracking-wide text-emerald-300/80">{eyebrow}</div>}
+          {eyebrow && <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">{eyebrow}</div>}
           <h1 className="truncate text-base font-semibold text-zinc-50">{title}</h1>
           {description && <p className="mt-1 max-w-3xl truncate text-sm text-zinc-500">{description}</p>}
         </div>
@@ -42,7 +42,7 @@ export function SplitWorkbench({
 }) {
   return (
     <div className="grid h-[calc(100vh-64px)] min-h-0 grid-cols-[320px_minmax(0,1fr)] max-lg:grid-cols-1">
-      <aside className={`min-h-0 overflow-y-auto border-r border-white/[0.07] bg-[#0b0c0d] ${leftClassName}`}>
+      <aside className={`min-h-0 overflow-y-auto border-r border-white/[0.07] bg-[#0d0e10] ${leftClassName}`}>
         {left}
       </aside>
       <section className="min-h-0 overflow-y-auto">
@@ -71,7 +71,7 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={`rounded-xl border border-white/[0.08] bg-white/[0.035] ${className}`}>
+      <section className={`rounded-2xl border border-white/[0.08] bg-white/[0.035] ${className}`}>
       {(title || action) && (
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
           <div className="min-w-0">
@@ -103,7 +103,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.10] bg-white/[0.02] px-6 text-center">
+    <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.10] bg-white/[0.02] px-6 text-center">
       {icon && <div className="mb-3 text-zinc-600">{icon}</div>}
       <div className="text-sm font-medium text-zinc-200">{title}</div>
       {body && <div className="mt-1 max-w-md text-sm text-zinc-500">{body}</div>}
@@ -114,7 +114,7 @@ export function EmptyState({
 
 export function StatTile({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2">
+    <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2">
       <div className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
       <div className="mt-1 truncate text-sm font-medium text-zinc-100">{value}</div>
       {hint && <div className="mt-0.5 truncate text-[11px] text-zinc-600">{hint}</div>}
@@ -184,7 +184,7 @@ export function PrimaryButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-8 items-center gap-1.5 rounded-md bg-emerald-400 px-3 text-xs font-medium text-zinc-950 transition-colors hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-medium text-zinc-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
