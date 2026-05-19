@@ -28,11 +28,9 @@ import { InstancePicker } from './components/InstancePicker';
 import ToastContainer, { useToast } from './components/Toast';
 import MessageBubble, { TimelineItemList } from './components/MessageBubble';
 import type {
-  AgentStatus,
   ChatMessage,
   ChatStep,
   ChatTimelineEvent,
-  ChatTimelineItem,
   ContentBlock,
   InferenceInfo,
   SafetyLevel,
@@ -47,6 +45,21 @@ import { factStore } from './facts/store';
 import { useAgentFacts, useFactHydration, useTeamFacts } from './facts/useFacts';
 import type { AgentFact } from '@berry-agent/claw-contracts';
 import { SafetyAskDialog, type PendingSafetyAsk } from './components/SafetyAskDialog';
+import StatusDot from './components/StatusDot';
+import {
+  buildDisplayMessages,
+  buildFinalTimeline,
+  mergeFinalToolResults,
+  type StreamingTimelineItem,
+} from './chat/display';
+import {
+  formatSessionTime,
+  genId,
+  lastPathPart,
+  modelShortName,
+  shortSessionId,
+  uniqueStrings,
+} from './utils/format';
 
 const SettingsPage = lazy(() => import('./components/SettingsPage'));
 const AgentsPage = lazy(() => import('./components/AgentsPage'));
@@ -57,10 +70,6 @@ const AuditPage = lazy(() => import('./components/AuditPage'));
 
 type ClientView = 'inbox' | 'projects' | 'team' | 'agents' | 'audit' | 'settings' | 'skills' | 'mcp';
 type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'max' | 'xhigh';
-
-type StreamingTimelineItem =
-  | { type: 'event'; event: ChatTimelineEvent }
-  | { type: 'step'; stepId: string };
 
 interface SessionListItem {
   id: string;
@@ -2402,218 +2411,4 @@ function useProjectSummaries(agents: AgentFact[], teams: TeamFact[]): ProjectSum
       return a.name.localeCompare(b.name);
     });
   }, [agents, teams]);
-}
-
-function StatusDot({ ok, status }: { ok?: boolean; status?: AgentStatus }) {
-  const className =
-    ok === true || status === 'idle' ? 'bg-emerald-400' :
-    ok === false || status === 'error' ? 'bg-red-400' :
-    status === 'sleeping' ? 'bg-zinc-500' :
-    status ? 'bg-sky-400 animate-pulse' :
-    'bg-zinc-600';
-
-  return <span className={`h-2 w-2 flex-shrink-0 rounded-full ${className}`} />;
-}
-
-function statusTone(status?: AgentStatus): 'good' | 'warn' | 'bad' | undefined {
-  if (status === 'idle') return 'good';
-  if (status === 'error') return 'bad';
-  if (status) return 'warn';
-  return undefined;
-}
-
-function modelShortName(model?: string): string {
-  if (!model) return '-';
-  return model.split('/').pop()?.split(':').pop() ?? model;
-}
-
-function shortSessionId(id?: string): string {
-  if (!id) return '';
-  return id.length > 14 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
-}
-
-function uniqueStrings(values: Array<string | undefined | null>): string[] {
-  return [...new Set(values.filter((value): value is string => !!value && value.trim().length > 0))];
-}
-
-function formatSessionTime(value?: number): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
-function mergeFinalToolResults(steps: ChatStep[], finalTools?: ToolCallInfo[]): ChatStep[] {
-  if (!finalTools?.length) return steps;
-
-  const byId = new Map(finalTools.filter((tool) => tool.toolUseId).map((tool) => [tool.toolUseId, tool]));
-  const byName = new Map<string, ToolCallInfo[]>();
-  for (const tool of finalTools) {
-    const bucket = byName.get(tool.name) ?? [];
-    bucket.push(tool);
-    byName.set(tool.name, bucket);
-  }
-
-  return steps.map((step) => ({
-    ...step,
-    toolCalls: step.toolCalls.map((tool) => {
-      const hydrated = (tool.toolUseId ? byId.get(tool.toolUseId) : undefined)
-        ?? byName.get(tool.name)?.find((candidate) => candidate.result !== undefined || candidate.isError !== undefined);
-      return hydrated ? { ...tool, ...hydrated } : tool;
-    }),
-  }));
-}
-
-interface DisplayMessage {
-  message: ChatMessage;
-  startedAt?: number;
-}
-
-function buildDisplayMessages(messages: ChatMessage[]): DisplayMessage[] {
-  const out: DisplayMessage[] = [];
-  let assistantGroup: ChatMessage[] = [];
-  let lastUserTimestamp: number | undefined;
-
-  const flushAssistantGroup = () => {
-    if (assistantGroup.length === 0) return;
-    out.push({
-      message: combineAssistantMessages(assistantGroup),
-      startedAt: lastUserTimestamp,
-    });
-    assistantGroup = [];
-  };
-
-  for (const message of messages) {
-    if (message.role === 'user') {
-      flushAssistantGroup();
-      out.push({ message });
-      lastUserTimestamp = message.timestamp;
-    } else {
-      assistantGroup.push(message);
-    }
-  }
-  flushAssistantGroup();
-  return out;
-}
-
-function combineAssistantMessages(group: ChatMessage[]): ChatMessage {
-  if (group.length === 1) {
-    const only = group[0]!;
-    if (only.timeline?.length || only.steps?.length || only.events?.length) return only;
-    const fallbackTimeline = assistantMessageActivityItems(only, false);
-    return fallbackTimeline.length > 0 ? { ...only, timeline: fallbackTimeline } : only;
-  }
-  const last = group[group.length - 1]!;
-  const timeline: ChatTimelineItem[] = [];
-  const steps: ChatStep[] = [];
-  const events: ChatTimelineEvent[] = [];
-  const toolCalls: ToolCallInfo[] = [];
-  const inferences: InferenceInfo[] = [];
-  const thinking: string[] = [];
-
-  for (const message of group) {
-    const includeMessageTextInTimeline = message.id !== last.id;
-    timeline.push(...assistantMessageActivityItems(message, includeMessageTextInTimeline));
-
-    if (message.steps?.length) steps.push(...message.steps);
-    if (message.events?.length) events.push(...message.events);
-    if (message.toolCalls?.length) toolCalls.push(...message.toolCalls);
-    if (message.inferences?.length) inferences.push(...message.inferences);
-    if (message.thinking) thinking.push(message.thinking);
-  }
-
-  return {
-    ...last,
-    id: `assistant-group-${group[0]!.id}-${last.id}`,
-    timestamp: last.timestamp,
-    content: last.content,
-    timeline: timeline.length > 0 ? timeline : undefined,
-    steps: steps.length > 0 ? steps : undefined,
-    events: events.length > 0 ? events : undefined,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    inferences: inferences.length > 0 ? inferences : last.inferences,
-    thinking: thinking.length > 0 ? thinking.join('\n\n') : last.thinking,
-  };
-}
-
-function assistantMessageActivityItems(message: ChatMessage, includeText: boolean): ChatTimelineItem[] {
-  if (message.timeline?.length) {
-    return includeText
-      ? message.timeline
-      : message.timeline.map((item) =>
-        item.type === 'step'
-          ? { type: 'step' as const, step: { ...item.step, text: undefined } }
-          : item,
-      );
-  }
-
-  if (message.steps?.length) {
-    return message.steps.map((step) => ({
-      type: 'step' as const,
-      step: includeText ? step : { ...step, text: undefined },
-    }));
-  }
-
-  const items: ChatTimelineItem[] = [];
-  if (message.events?.length) {
-    items.push(...message.events.map((event) => ({ type: 'event' as const, event })));
-  }
-
-  const text = includeText && message.content && message.content !== '(image)' ? message.content : undefined;
-  if (message.thinking || message.toolCalls?.length || text) {
-    items.push({
-      type: 'step',
-      step: {
-        id: `message-step-${message.id}`,
-        thinking: message.thinking,
-        text,
-        toolCalls: message.toolCalls ?? [],
-        status: 'completed',
-      },
-    });
-  }
-
-  return items;
-}
-
-function buildFinalTimeline(order: StreamingTimelineItem[], steps: ChatStep[]): ChatTimelineItem[] {
-  if (order.length === 0) return steps.map((step) => ({ type: 'step', step }));
-
-  const stepById = new Map(steps.map((step) => [step.id, step]));
-  const emittedSteps = new Set<string>();
-  const out: ChatTimelineItem[] = [];
-
-  for (const item of order) {
-    if (item.type === 'event') {
-      out.push({ type: 'event', event: item.event });
-      continue;
-    }
-    const step = stepById.get(item.stepId);
-    if (!step || emittedSteps.has(step.id)) continue;
-    out.push({ type: 'step', step });
-    emittedSteps.add(step.id);
-  }
-
-  for (const step of steps) {
-    if (!emittedSteps.has(step.id)) out.push({ type: 'step', step });
-  }
-
-  return out;
-}
-
-function lastPathPart(path: string): string {
-  const clean = path.replace(/\/+$/, '');
-  return clean.split('/').pop() || clean;
-}
-
-function genId(size = 12): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let id = '';
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  for (const byte of bytes) id += chars[byte % chars.length];
-  return id;
 }
