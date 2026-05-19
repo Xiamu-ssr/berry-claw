@@ -475,7 +475,7 @@ function normalize(raw: Partial<AppConfig>): AppConfig {
   return {
     schemaVersion: CONFIG_SCHEMA_VERSION,
     providerInstances: { ...(raw.providerInstances ?? {}) },
-    models: { ...(raw.models ?? {}) },
+    models: normalizeModels(raw.models ?? {}),
     tiers: { ...(raw.tiers ?? {}) },
     agents: normalizeAgents(raw.agents ?? {}),
     defaultAgent: typeof raw.defaultAgent === 'string' ? raw.defaultAgent : '',
@@ -496,6 +496,21 @@ function normalizeSafetyClassifier(raw: Partial<AppConfig>['safetyClassifier']):
     ...(typeof raw.enabled === 'boolean' ? { enabled: raw.enabled } : {}),
     ...(typeof raw.skipStage2 === 'boolean' ? { skipStage2: raw.skipStage2 } : {}),
   };
+}
+
+function normalizeModels(rawModels: Record<string, ModelEntry>): Record<string, ModelEntry> {
+  return Object.fromEntries(
+    Object.entries(rawModels).map(([id, entry]) => {
+      const contextWindow = typeof entry.contextWindow === 'number' && Number.isFinite(entry.contextWindow) && entry.contextWindow >= 4_000 && entry.contextWindow <= 10_000_000
+        ? Math.floor(entry.contextWindow)
+        : undefined;
+      return [id, {
+        ...entry,
+        id,
+        ...(contextWindow ? { contextWindow } : {}),
+      }];
+    }),
+  );
 }
 
 function normalizeAgents(rawAgents: Record<string, AgentEntry>): Record<string, AgentEntry> {

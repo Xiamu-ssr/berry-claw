@@ -485,8 +485,14 @@ export class AgentManager {
       listProviderInstances: () => this.config.listProviderInstances(),
       listModels: () => this.config.listModels(),
       getAgent: (id) => this.config.getAgent(id),
-      setModel: (id, entry) => { this.config.setModel(id, entry as unknown as ModelEntry); try { this.reloadAgent(id); } catch { /* agent may not be running */ } },
-      setTier: (tier, modelId) => this.config.setTier(tier as TierId, modelId),
+      setModel: (id, entry) => {
+        this.config.setModel(id, entry as unknown as ModelEntry);
+        this.rebuildLiveAgentsForModel(id);
+      },
+      setTier: (tier, modelId) => {
+        this.config.setTier(tier as TierId, modelId);
+        this.rebuildLiveAgentsForTier(tier as TierId);
+      },
       reloadAgent: (id) => this.reloadAgent(id),
       scheduleRestart: (reason) => this.scheduleRestart(reason),
       port: this.port,
@@ -586,6 +592,23 @@ export class AgentManager {
       this.getAgent(id);
       this.emitAgentFact(id);
     }
+  }
+
+  rebuildLiveAgentsForModel(modelId: string): void {
+    this.rebuildLiveAgents((_id, entry) => this.agentModelSpecTargetsModel(entry.model, modelId));
+  }
+
+  rebuildLiveAgentsForTier(tier: TierId): void {
+    this.rebuildLiveAgents((_id, entry) => entry.model === `tier:${tier}`);
+  }
+
+  private agentModelSpecTargetsModel(modelSpec: string, modelId: string): boolean {
+    if (modelSpec === modelId || modelSpec === `model:${modelId}`) return true;
+    if (modelSpec.startsWith('tier:')) {
+      const tier = modelSpec.slice('tier:'.length) as TierId;
+      return this.config.getTiers()[tier] === modelId;
+    }
+    return false;
   }
 
   /**

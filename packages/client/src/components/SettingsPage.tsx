@@ -52,6 +52,7 @@ interface ModelBindingProviderRef {
 interface ModelBinding {
   id: string;
   label?: string;
+  contextWindow?: number;
   providers: ModelBindingProviderRef[];
 }
 
@@ -852,11 +853,15 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
     onChange();
   };
 
-  const updateProviders = async (id: string, providers: ModelBindingProviderRef[]) => {
-    const res = await apiFetch(API.configModel(id), {
+  const updateModel = async (binding: ModelBinding, patch: { providers: ModelBindingProviderRef[]; contextWindow?: number }) => {
+    const res = await apiFetch(API.configModel(binding.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ providers }),
+      body: JSON.stringify({
+        label: binding.label,
+        providers: patch.providers,
+        contextWindow: patch.contextWindow,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'save failed' }));
@@ -930,6 +935,11 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 bg-white/[0.06] text-zinc-500 whitespace-nowrap">
                     {m.providers.length} provider{m.providers.length !== 1 ? 's' : ''}
                   </span>
+                  {m.contextWindow ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.06] text-zinc-500 whitespace-nowrap">
+                      {formatTokenWindow(m.contextWindow)} ctx
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-1">
                   <button
@@ -949,7 +959,7 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
                 <ModelProviderEditor
                   binding={m}
                   providerIds={providerIds}
-                  onSave={(providers) => updateProviders(m.id, providers)}
+                  onSave={(patch) => updateModel(m, patch)}
                 />
               )}
             </div>
@@ -963,12 +973,16 @@ function ModelsTab({ config, onChange }: { config: ConfigPayload; onChange: () =
 function ModelProviderEditor({ binding, providerIds, onSave }: {
   binding: ModelBinding;
   providerIds: string[];
-  onSave: (providers: ModelBindingProviderRef[]) => void | Promise<void>;
+  onSave: (patch: { providers: ModelBindingProviderRef[]; contextWindow?: number }) => void | Promise<void>;
 }) {
   const [refs, setRefs] = useState<ModelBindingProviderRef[]>(binding.providers);
+  const [contextWindowInput, setContextWindowInput] = useState(binding.contextWindow ? String(binding.contextWindow) : '');
   const [picking, setPicking] = useState<string>('');
 
-  useEffect(() => { setRefs(binding.providers); }, [binding]);
+  useEffect(() => {
+    setRefs(binding.providers);
+    setContextWindowInput(binding.contextWindow ? String(binding.contextWindow) : '');
+  }, [binding]);
 
   const unused = providerIds.filter(p => !refs.some(r => r.providerId === p));
 
@@ -991,13 +1005,30 @@ function ModelProviderEditor({ binding, providerIds, onSave }: {
     setRefs(next);
   };
 
-  const dirty = JSON.stringify(refs) !== JSON.stringify(binding.providers);
+  const parsedContextWindow = parseOptionalPositiveInt(contextWindowInput);
+  const canSaveContextWindow = contextWindowInput.trim() === '' || (parsedContextWindow !== undefined && parsedContextWindow >= 4_000);
+  const dirty = JSON.stringify(refs) !== JSON.stringify(binding.providers) ||
+    (parsedContextWindow ?? undefined) !== binding.contextWindow;
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 p-4 bg-black/20">
       <p className="text-xs text-gray-500 mb-2">
         Order = failover priority. Set <code>remoteModelId</code> when a provider uses a different id for this model.
       </p>
+      <div className="mb-3 grid gap-2 md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="block">
+          <span className="mb-1 block text-xs text-zinc-500">Max context tokens</span>
+          <input
+            className="settings-input w-full font-mono text-xs"
+            placeholder="e.g. 128000"
+            value={contextWindowInput}
+            onChange={(e) => setContextWindowInput(e.target.value)}
+          />
+        </label>
+        <p className="self-end pb-2 text-xs text-zinc-500">
+          Empty uses the product fallback. This value drives the chat context bar and compaction threshold.
+        </p>
+      </div>
       <div className="space-y-2">
         {refs.map((r, i) => (
           <div key={i} className="flex items-center gap-2">
@@ -1030,15 +1061,18 @@ function ModelProviderEditor({ binding, providerIds, onSave }: {
       )}
       <div className="flex justify-end gap-2 mt-3">
         <button
-          onClick={() => setRefs(binding.providers)}
+          onClick={() => {
+            setRefs(binding.providers);
+            setContextWindowInput(binding.contextWindow ? String(binding.contextWindow) : '');
+          }}
           disabled={!dirty}
           className="text-sm rounded-lg px-3 py-2 text-gray-500 hover:bg-white/[0.07] disabled:opacity-40"
         >
           Reset
         </button>
         <button
-          onClick={() => onSave(refs)}
-          disabled={!dirty || refs.length === 0}
+          onClick={() => onSave({ providers: refs, contextWindow: parsedContextWindow })}
+          disabled={!dirty || refs.length === 0 || !canSaveContextWindow}
           className="text-sm rounded-lg px-3 py-2 bg-emerald-400 hover:bg-emerald-300 text-zinc-950 text-white disabled:opacity-40"
         >
           Save
@@ -1046,6 +1080,20 @@ function ModelProviderEditor({ binding, providerIds, onSave }: {
       </div>
     </div>
   );
+}
+
+function parseOptionalPositiveInt(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed.replace(/,/g, ''));
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function formatTokenWindow(value: number): string {
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
+  return String(value);
 }
 
 // ============================================================

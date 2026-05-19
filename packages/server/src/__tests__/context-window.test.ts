@@ -27,6 +27,7 @@ describe('inferContextWindow', () => {
       models: {
         strong: {
           id: 'strong',
+          contextWindow: 512_000,
           providers: [{ providerId: 'openai', remoteModelId: 'gpt-5.5' }],
         },
         claude: {
@@ -40,7 +41,7 @@ describe('inferContextWindow', () => {
       },
     };
 
-    expect(inferContextWindow('tier:strong', registry)).toBe(100_000);
+    expect(inferContextWindow('tier:strong', registry)).toBe(512_000);
     expect(inferContextWindow('model:claude', registry)).toBe(200_000);
     expect(inferContextWindow('kimi-k2', registry)).toBe(128_000);
     expect(inferContextWindow('unknown-model', registry)).toBe(200_000);

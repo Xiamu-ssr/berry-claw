@@ -94,10 +94,13 @@ describe('Config API (v2 schema: provider instances + models + tiers)', () => {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        contextWindow: 512000,
         providers: [{ providerId: 'test-provider' }],
       }),
     });
     expect(res.ok).toBe(true);
+    const config = await fetch(`${BASE}/api/config`).then(r => r.json());
+    expect(config.models['gpt-4o'].contextWindow).toBe(512000);
   });
 
   it('GET /api/models exposes Layer-2 bindings to the chat switcher', async () => {

@@ -301,22 +301,30 @@ export async function startServer(port: number, options: StartServerOptions = {}
   });
 
   app.put('/api/config/models/:id', (req, res) => {
-    const { providers, label } = req.body ?? {};
+    const { providers, label, contextWindow } = req.body ?? {};
     if (!Array.isArray(providers) || providers.length === 0) {
       return res.status(400).json({ error: 'providers[] with at least one entry required' });
+    }
+    if (
+      contextWindow !== undefined &&
+      contextWindow !== null &&
+      (!Number.isFinite(Number(contextWindow)) || Number(contextWindow) < 4_000 || Number(contextWindow) > 10_000_000)
+    ) {
+      return res.status(400).json({ error: 'contextWindow must be between 4000 and 10000000 tokens' });
     }
     manager.config.setModel(req.params.id, {
       id: req.params.id,
       label,
+      ...(contextWindow ? { contextWindow: Math.floor(Number(contextWindow)) } : {}),
       providers,
     });
-    // Hot reload so agents pointing at this model pick up the new binding.
-    try { manager.initAgent(); } catch { /* non-fatal */ }
+    manager.rebuildLiveAgentsForModel(req.params.id);
     res.json({ ok: true });
   });
 
   app.delete('/api/config/models/:id', (req, res) => {
     manager.config.removeModel(req.params.id);
+    manager.rebuildLiveAgentsForModel(req.params.id);
     res.json({ ok: true });
   });
 
@@ -333,6 +341,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
     }
     const { modelId } = req.body ?? {};
     manager.config.setTier(tier, typeof modelId === 'string' ? modelId : null);
+    manager.rebuildLiveAgentsForTier(tier);
     res.json({ ok: true });
   });
 
@@ -403,6 +412,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
         model: id,
         providerName: entry.providers[0]?.providerId ?? '',
         type: 'model',
+        contextWindow: entry.contextWindow,
       })),
       current: manager.currentModel(),
     });

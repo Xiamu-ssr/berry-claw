@@ -28,7 +28,7 @@ export interface BerryToolDeps {
   }>;
   listModels: () => Array<{
     id: string;
-    entry: { label?: string; providers: Array<{ providerId: string; remoteModelId?: string }> };
+    entry: { label?: string; contextWindow?: number; providers: Array<{ providerId: string; remoteModelId?: string }> };
   }>;
   getAgent: (id: string) => {
     name: string;
@@ -253,7 +253,6 @@ function handleConfigSet(
         return { content: `"set model" requires a "value" object with { id, providers }.` , isError: true };
       }
       deps.setModel(key, value as Record<string, unknown>);
-      try { deps.reloadAgent(key); } catch { /* agent may not be running */ }
       return { content: `Model "${key}" updated.` };
     }
     case 'tier': {
