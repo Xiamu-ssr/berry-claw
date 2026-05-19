@@ -24,7 +24,7 @@ import type {
 } from '@berry-agent/core';
 import type { ChatStep, ChatTimelineEvent, ChatTimelineItem, InferenceInfo, ToolCallInfo } from '@berry-agent/claw-contracts';
 import type { AskBridge } from '@berry-agent/safe';
-import { buildToolGuard, resolveSafetyLevel, type SafetyLevel } from './safety.js';
+import { buildToolGuard, resolveSafetyLevel, type BuildToolGuardOptions, type SafetyLevel } from './safety.js';
 import { createBerryTools } from './berry-tools.js';
 import type { ModelEntry } from './config-manager.js';
 import type { TierId } from '@berry-agent/models';
@@ -54,6 +54,7 @@ import { deriveAgentFact, deriveTeamFact, deriveSystemFact } from '../facts/deri
 import { MCPManager } from './mcp-manager.js';
 import { loadMergedMCPConfig, ensureDefaultAgentMCP } from './mcp-config.js';
 import { listInstalledSkillNamesSync, SkillMarketService } from './skill-market.js';
+import { inferContextWindow } from './context-window.js';
 
 /**
  * Pick a web_search provider based on which credential key is present.
@@ -291,6 +292,27 @@ export class AgentManager {
     });
   }
 
+  private defaultSafetyClassifierModel(): string | undefined {
+    const config = this.config.get();
+    return config.safetyClassifier?.model
+      ?? (config.tiers.fast ? 'tier:fast' : undefined)
+      ?? this.config.firstConfiguredModelId()
+      ?? undefined;
+  }
+
+  private buildSafetyClassifier(projectRoot?: string): BuildToolGuardOptions['classifier'] {
+    const config = this.config.get();
+    if (config.safetyClassifier?.enabled === false) return undefined;
+    const modelRef = this.defaultSafetyClassifierModel();
+    if (!modelRef) return undefined;
+    return {
+      modelRef,
+      registry: this.config.toModelsRegistry(),
+      projectDir: projectRoot,
+      skipStage2: config.safetyClassifier?.skipStage2,
+    };
+  }
+
   /** Initialize an agent from config */
   initAgent(agentId?: string): Agent {
     const id = agentId ?? this.activeAgentId;
@@ -301,6 +323,7 @@ export class AgentManager {
     // the registry view of the config, producing either a static ProviderConfig
     // (raw escape hatch) or a ProviderResolver with failover support.
     const providerInput = this.buildProviderInput(id, entry.model);
+    const contextWindow = inferContextWindow(entry.model, this.config.toModelsRegistry());
 
     const workspace = entry.workspace ?? this.config.agentWorkspace(id);
     if (!existsSync(workspace)) mkdirSync(workspace, { recursive: true });
@@ -365,6 +388,7 @@ export class AgentManager {
       scope,
       askBridge: this.askBridge,
       agentId: id,
+      classifier: safetyLevel === 'auto' ? this.buildSafetyClassifier(projectRoot) : undefined,
     });
 
     // Per-agent observe collector: each agent gets its own collector so that
@@ -425,6 +449,7 @@ export class AgentManager {
       promptPack: entry.promptPack,
       promptPackDir: this.config.promptPacksDir(),
       modelResolver: (modelRef) => this.buildProviderInput(id, modelRef),
+      compaction: { contextWindow },
       tools,
       cwd: projectRoot ?? workspace,
       home,
@@ -550,6 +575,17 @@ export class AgentManager {
     this.mcpManager.releaseAgent(agentId).catch((err) => {
       console.error(`[agent:${agentId}] MCP release failed:`, err instanceof Error ? err.message : err);
     });
+  }
+
+  /** Recreate live agent runtimes so init-only wiring such as toolGuard is rebuilt. */
+  rebuildLiveAgents(predicate?: (id: string, entry: AgentEntry) => boolean): void {
+    for (const { id, entry } of this.config.listAgents()) {
+      if (predicate && !predicate(id, entry)) continue;
+      if (!this.agents.has(id)) continue;
+      this.dropAgent(id);
+      this.getAgent(id);
+      this.emitAgentFact(id);
+    }
   }
 
   /**
@@ -781,7 +817,8 @@ export class AgentManager {
    * instance (which would destroy in-memory session state), we mutate the
    * running Agent via SDK hot-reload API so the next turn picks up changes.
    *
-   * Supports: env prompt, model, allowedTools (via disabledTools in entry).
+   * Supports: env prompt, model, reasoning effort, disabledTools. Changes
+   * that affect init-only wiring (project/model/safety guard) rebuild.
    */
   reloadAgent(agentId: string): void {
     const cached = this.agents.get(agentId);
@@ -816,16 +853,20 @@ export class AgentManager {
     const fullPrompt = buildBaseSystemPrompt(entry, workspace);
     cached.agent.setSystemPrompt(fullPrompt);
 
-    // 2. Model (if changed) — switchModel resolves the ref through the
-    //    host modelResolver, drops any stale resolver, and persists to agent.json.
-    //    The "config.json is the single source of truth" rule holds: next
-    //    inference sees exactly what the user asked for, no silent rollback.
-    try {
-      if (entry.model && entry.model !== cached.entry.model) {
-        cached.agent.switchModel(entry.model);
-      }
-    } catch (err) {
-      console.warn(`[reload] model switch failed for ${agentId}:`, err);
+    // 2. Model changes affect both provider wiring and compaction context
+    // window. Recreate the SDK agent so the new model's window is seeded
+    // consistently instead of keeping a stale runtime threshold.
+    if (entry.model && entry.model !== cached.entry.model) {
+      this.dropAgent(agentId);
+      this.emitAgentFact(agentId);
+      return;
+    }
+
+    // 2.2 Safety level changes rebuild the init-time toolGuard chain.
+    if ((entry.safetyLevel ?? null) !== (cached.entry.safetyLevel ?? null)) {
+      this.dropAgent(agentId);
+      this.emitAgentFact(agentId);
+      return;
     }
 
     // 2.5 Reasoning effort (if changed) — setLevel drops any attached
@@ -868,19 +909,15 @@ export class AgentManager {
    * source of truth.
    */
   switchModel(model: string): void {
-    // Agent.switchModel resolves the ref via the host modelResolver, drops any stale
-    // resolver, and persists to agent.json — single source of truth.
-    this.getAgent().switchModel(model);
-
     // Persist the model choice so the UI and currentModel() agree.
     const entry = this.config.getAgent(this.activeAgentId);
     if (entry) {
       entry.model = model;
       this.config.setAgent(this.activeAgentId, entry);
-      this.config.save();
-      // Update the in-memory snapshot so getAgent() / currentModel() see it
-      const cached = this.agents.get(this.activeAgentId);
-      if (cached) cached.entry = entry;
+      // Model changes also change inferred context window. Recreate the
+      // live SDK agent so provider + compaction thresholds stay aligned.
+      this.dropAgent(this.activeAgentId);
+      this.getAgent(this.activeAgentId);
     }
     this.emitAgentFact(this.activeAgentId);
   }
@@ -1167,9 +1204,11 @@ export class AgentManager {
    */
   async getAgentContextSize(agentId?: string, sessionId?: string): Promise<{ current: number; window: number } | null> {
     const id = agentId ?? this.activeAgentId;
+    this.getAgent(id);
     const instance = this.agents.get(id);
     if (!instance) return null;
-    const ctxWindow = instance.agent.snapshot().compaction?.contextWindow ?? 200_000;
+    const ctxWindow = instance.agent.snapshot().compaction?.contextWindow
+      ?? inferContextWindow(instance.entry.model, this.config.toModelsRegistry());
     const targetSessionId = sessionId ?? this.sessions.currentSessionId;
     if (!targetSessionId) return { current: 0, window: ctxWindow };
     const session = await instance.agent.getSession(targetSessionId);

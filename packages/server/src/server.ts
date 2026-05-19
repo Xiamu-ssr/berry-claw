@@ -227,6 +227,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
       tiers: config.tiers,
       agents: config.agents,
       defaultAgent: config.defaultAgent,
+      safetyClassifier: config.safetyClassifier ?? null,
     });
   });
 
@@ -568,7 +569,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
   // The effective level for an agent is resolved from
   //   agent.safetyLevel  > <projectRoot>/.berry/safety.json > appConfig.safetyLevel
   // by src/engine/safety.ts. Endpoints below just edit one layer each and
-  // trigger `reloadAgent` so the new guard takes effect without a restart.
+  // rebuild live agents when the init-time guard chain must change.
   //
   // Per-agent setting already flows through PATCH /api/agents/:id (any field
   // on AgentEntry, including safetyLevel, is merged + persisted + reloaded).
@@ -577,6 +578,11 @@ export async function startServer(port: number, options: StartServerOptions = {}
   /** Snapshot all three layers — handy for the Agents-tab dropdown UI. */
   app.get('/api/safety', (_req, res) => {
     const config = manager.config.get();
+    const defaultClassifierModel =
+      config.safetyClassifier?.model
+      ?? (config.tiers.fast ? 'tier:fast' : undefined)
+      ?? manager.config.firstConfiguredModelId()
+      ?? null;
     const agents = manager.config.listAgents().map(({ id, entry }) => {
       const projectLevel = entry.project ? (readProjectSafety(entry.project)?.level ?? null) : null;
       return {
@@ -590,6 +596,12 @@ export async function startServer(port: number, options: StartServerOptions = {}
     res.json({
       levels: SAFETY_LEVELS,
       globalLevel: config.safetyLevel ?? null,
+      classifier: {
+        enabled: config.safetyClassifier?.enabled ?? true,
+        model: config.safetyClassifier?.model ?? defaultClassifierModel,
+        configuredModel: config.safetyClassifier?.model ?? null,
+        skipStage2: config.safetyClassifier?.skipStage2 ?? false,
+      },
       agents,
     });
   });
@@ -601,11 +613,32 @@ export async function startServer(port: number, options: StartServerOptions = {}
       return res.status(400).json({ error: `level must be null or one of: ${SAFETY_LEVELS.join(', ')}` });
     }
     manager.config.update({ safetyLevel: level ?? undefined });
-    // Reload every live agent so each picks up the new effective level.
-    for (const { id } of manager.config.listAgents()) {
-      try { manager.reloadAgent(id); } catch { /* not running → fine */ }
-    }
+    manager.rebuildLiveAgents();
     res.json({ ok: true, globalLevel: level ?? null });
+  });
+
+  /** Configure the app-wide LLM classifier used by safety level `auto`. */
+  app.patch('/api/safety/classifier', (req, res) => {
+    const { model, enabled, skipStage2 } = req.body ?? {};
+    if (model !== undefined && model !== null && typeof model !== 'string') {
+      return res.status(400).json({ error: 'model must be a string or null' });
+    }
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be boolean' });
+    }
+    if (skipStage2 !== undefined && typeof skipStage2 !== 'boolean') {
+      return res.status(400).json({ error: 'skipStage2 must be boolean' });
+    }
+    const current = manager.config.get().safetyClassifier ?? {};
+    const next = {
+      ...current,
+      ...(model !== undefined ? (model ? { model: model.trim() } : { model: undefined }) : {}),
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(skipStage2 !== undefined ? { skipStage2 } : {}),
+    };
+    manager.config.update({ safetyClassifier: next });
+    manager.rebuildLiveAgents();
+    res.json({ ok: true, classifier: manager.config.get().safetyClassifier ?? null });
   });
 
   /** Set (or clear) the project-level safety file. */
@@ -622,13 +655,9 @@ export async function startServer(port: number, options: StartServerOptions = {}
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
-    // Reload every agent whose project matches — they're the only ones
-    // whose effective level could have changed.
-    for (const { id, entry } of manager.config.listAgents()) {
-      if (entry.project === projectRoot) {
-        try { manager.reloadAgent(id); } catch { /* not running → fine */ }
-      }
-    }
+    // Rebuild live agents whose project matches — they're the only ones
+    // whose init-time guard chain could have changed.
+    manager.rebuildLiveAgents((_id, entry) => entry.project === projectRoot);
     res.json({ ok: true, projectRoot, level: level ?? null });
   });
 

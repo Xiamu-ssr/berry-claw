@@ -134,7 +134,7 @@ const SAFETY_LEVELS: SafetyLevel[] = ['trust', 'default', 'auto'];
 const SAFETY_META: Record<SafetyLevel, { label: string; summary: string; tone: 'neutral' | 'good' | 'warn' | 'bad' | 'info' }> = {
   trust: { label: 'Trust', summary: '只拦截灾难级命令，不限制写入范围。', tone: 'warn' },
   default: { label: 'Default', summary: '限制写入范围，并拦截高危命令。', tone: 'good' },
-  auto: { label: 'Auto', summary: 'Default + 高风险工具调用前询问。', tone: 'info' },
+  auto: { label: 'Auto', summary: 'Default + LLM classifier 自动审批；无 classifier 时回退人工审批。', tone: 'info' },
 };
 
 export default function AgentsPage() {

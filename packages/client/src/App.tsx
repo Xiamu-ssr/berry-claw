@@ -87,7 +87,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string>();
   const [contextTokensUsed, setContextTokensUsed] = useState(0);
-  const [contextWindow, setContextWindow] = useState(200_000);
+  const [contextWindow, setContextWindow] = useState<number | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [creatingSession, setCreatingSession] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -692,13 +692,11 @@ export default function App() {
     if (isLoading || creatingSession) return;
     setCreatingSession(true);
     setContextTokensUsed(0);
-    setContextWindow(200_000);
     send({ type: 'new_session', agentId: selectedAgentIdRef.current });
   }, [creatingSession, isLoading, send]);
 
   const handleResumeSession = useCallback((sessionId: string) => {
     setContextTokensUsed(0);
-    setContextWindow(200_000);
     send({ type: 'resume_session', sessionId, agentId: selectedAgentIdRef.current });
   }, [send]);
 
@@ -1121,7 +1119,7 @@ function InboxView({
   agents: AgentFact[];
   activeSessionId?: string;
   contextTokensUsed: number;
-  contextWindow: number;
+  contextWindow: number | null;
   streamingInferences: InferenceInfo[];
   sessions: SessionListItem[];
   todos: TodoItem[];
@@ -1927,8 +1925,9 @@ function EmptyPanel({ icon, title, body }: { icon: React.ReactNode; title: strin
   );
 }
 
-function ContextProgressBar({ used, window }: { used: number; window: number }) {
-  const pct = Math.min(100, Math.max(0, (used / Math.max(1, window)) * 100));
+function ContextProgressBar({ used, window }: { used: number; window: number | null }) {
+  const hasWindow = typeof window === 'number' && window > 0;
+  const pct = hasWindow ? Math.min(100, Math.max(0, (used / window) * 100)) : 0;
   const color = pct > 85 ? 'bg-red-400' : pct > 65 ? 'bg-amber-400' : pct > 40 ? 'bg-sky-400' : 'bg-emerald-400';
 
   return (
@@ -1937,7 +1936,7 @@ function ContextProgressBar({ used, window }: { used: number; window: number }) 
         <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
       </div>
       <div className="whitespace-nowrap font-mono text-[10px] text-zinc-600">
-        {pct.toFixed(1)}% · {used.toLocaleString()}/{window.toLocaleString()}
+        {hasWindow ? `${pct.toFixed(1)}% · ${used.toLocaleString()}/${window.toLocaleString()}` : `${used.toLocaleString()}/...`}
       </div>
     </div>
   );
@@ -2011,7 +2010,7 @@ function ChatInput({
   onInterject?: (text: string) => void;
   isLoading: boolean;
   agentName?: string;
-  contextWindow: number;
+  contextWindow: number | null;
   model?: string;
   modelOptions: string[];
   onModelChange?: (model: string) => void;
@@ -2332,7 +2331,7 @@ function ChatInput({
           </div>
           <div>
             {attachments.length > 0 ? `${attachments.length} image${attachments.length > 1 ? 's' : ''} · ` : ''}
-            {Math.round((input.length / 1024) * 10) / 10}K / {Math.round(contextWindow / 1024)}K
+            {Math.round((input.length / 1024) * 10) / 10}K / {contextWindow ? `${Math.round(contextWindow / 1024)}K` : '...'}
           </div>
         </div>
       </div>
@@ -2366,7 +2365,7 @@ const SAFETY_LEVELS: SafetyLevel[] = ['trust', 'default', 'auto'];
 const SAFETY_META: Record<SafetyLevel, { label: string; summary: string }> = {
   trust: { label: 'Trust', summary: '只拦截灾难级命令，不限制写入范围。' },
   default: { label: 'Default', summary: '限制写入范围，并拦截高危命令。' },
-  auto: { label: 'Auto', summary: 'Default + 高风险工具调用前询问。' },
+  auto: { label: 'Auto', summary: 'Default + LLM classifier 自动审批；无 classifier 时回退人工审批。' },
 };
 
 function useProjectSummaries(agents: AgentFact[], teams: TeamFact[]): ProjectSummary[] {

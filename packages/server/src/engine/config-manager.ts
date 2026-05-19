@@ -129,6 +129,15 @@ export interface AppConfig {
    * means "no opinion" → the resolver falls through to its 'default' floor.
    */
   safetyLevel?: 'trust' | 'default' | 'auto';
+  /** Global LLM classifier used by safety level `auto`. */
+  safetyClassifier?: {
+    /** Model ref, e.g. tier:fast or a Layer-2 model id. */
+    model?: string;
+    /** false disables the classifier and falls back to HITL approval. */
+    enabled?: boolean;
+    /** Skip classifier Stage 2 reasoning for lower latency. */
+    skipStage2?: boolean;
+  };
   auth: {
     sessionTtlMs: number;
     challengeTtlMs: number;
@@ -471,11 +480,21 @@ function normalize(raw: Partial<AppConfig>): AppConfig {
     agents: normalizeAgents(raw.agents ?? {}),
     defaultAgent: typeof raw.defaultAgent === 'string' ? raw.defaultAgent : '',
     safetyLevel: raw.safetyLevel,
+    safetyClassifier: normalizeSafetyClassifier(raw.safetyClassifier),
     auth: {
       sessionTtlMs: raw.auth?.sessionTtlMs ?? EMPTY_CONFIG.auth.sessionTtlMs,
       challengeTtlMs: raw.auth?.challengeTtlMs ?? EMPTY_CONFIG.auth.challengeTtlMs,
       allowAnonymous: raw.auth?.allowAnonymous ?? EMPTY_CONFIG.auth.allowAnonymous,
     },
+  };
+}
+
+function normalizeSafetyClassifier(raw: Partial<AppConfig>['safetyClassifier']): AppConfig['safetyClassifier'] | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  return {
+    ...(typeof raw.model === 'string' && raw.model.trim() ? { model: raw.model.trim() } : {}),
+    ...(typeof raw.enabled === 'boolean' ? { enabled: raw.enabled } : {}),
+    ...(typeof raw.skipStage2 === 'boolean' ? { skipStage2: raw.skipStage2 } : {}),
   };
 }
 

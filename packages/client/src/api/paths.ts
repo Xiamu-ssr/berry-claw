@@ -190,6 +190,7 @@ export const API = {
   // plus a single snapshot GET that the Agents tab dropdown needs.
   safety: '/api/safety',
   safetyGlobal: '/api/safety/global',
+  safetyClassifier: '/api/safety/classifier',
   safetyProject: '/api/safety/project',
   safetyAsk: '/api/safety/ask',
   safetyAskResolve: (id: string) => `/api/safety/ask/${encodeURIComponent(id)}`,

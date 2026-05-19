@@ -9,12 +9,9 @@
  *   default Standard berry-claw safety. writeScopeGuard (write ops stay
  *           inside scope.writableRoots) + broad destructive denylist.
  *           What we shipped originally.
- *   auto    default + HITL approval on every call of a configurable list
- *           of "dangerous" tools (see {@link DEFAULT_HITL_TOOLS}). Uses
- *           the {@link askList} primitive; a host-supplied {@link AskBridge}
- *           actually pauses the agent and collects the human's answer.
- *           If no bridge is installed the guard fails-closed (denies the
- *           listed tools) — never silently auto-approves.
+ *   auto    default + LLM classifier approval when configured. If no
+ *           classifier model is available, falls back to HITL approval on a
+ *           configurable list of dangerous tools.
  *
  * Cascade
  * -------
@@ -37,9 +34,11 @@ import {
   denyList,
   writeScopeGuard,
   askList,
+  createClassifierGuard,
   type AskBridge,
 } from '@berry-agent/safe';
 import type { ToolGuard, AgentScope } from '@berry-agent/core';
+import type { ModelsRegistry } from '@berry-agent/models';
 import type { AgentEntry, AppConfig } from './config-manager.js';
 
 /** Three safety presets, ordered from most permissive to most cautious. */
@@ -181,6 +180,15 @@ export interface BuildToolGuardOptions {
    *  the agent id — the SDK sends the full Session on the guard call, so
    *  the bridge can read session.id there instead.) */
   agentId?: string;
+  /** LLM classifier used by `auto` mode. When present, it classifies every
+   *  tool call unless `tools` narrows the list. */
+  classifier?: {
+    modelRef: string;
+    registry: ModelsRegistry;
+    projectDir?: string;
+    skipStage2?: boolean;
+    tools?: string[];
+  };
 }
 
 /**
@@ -190,7 +198,7 @@ export interface BuildToolGuardOptions {
  * Shape per mode:
  *   trust   → denyList(CATASTROPHIC_PATTERNS)
  *   default → compositeGuard(writeScopeGuard, denyList([CATA, DANG]))
- *   auto    → compositeGuard(default, askList(hitlTools))
+ *   auto    → compositeGuard(default, classifier) or HITL fallback
  *
  * The first guard in a composite that returns 'deny' short-circuits the
  * rest (see @berry-agent/safe/guards/rules.compositeGuard). Order matters:
@@ -200,7 +208,7 @@ export function buildToolGuard(
   level: SafetyLevel,
   opts: BuildToolGuardOptions,
 ): ToolGuard {
-  const { scope, askBridge, hitlTools, hitlTimeoutMs } = opts;
+  const { scope, askBridge, hitlTools, hitlTimeoutMs, classifier } = opts;
 
   // Shared building blocks — constructed fresh per call so hosts can hold
   // many simultaneous guards without shared mutable state.
@@ -220,7 +228,18 @@ export function buildToolGuard(
     return compositeGuard(write, broadDenies);
   }
 
-  // auto — HITL stacked on top of default.
+  // auto — prefer LLM classifier approval; fall back to HITL only when the
+  // host has not configured a classifier model.
+  if (classifier) {
+    const classifierGuard = createClassifierGuard({
+      modelRef: classifier.modelRef,
+      registry: classifier.registry,
+      environment: { projectDir: classifier.projectDir ?? scope.projectDir },
+      skipStage2: classifier.skipStage2,
+    });
+    return compositeGuard(write, broadDenies, filterGuardByTool(classifierGuard, classifier.tools));
+  }
+
   const hitl = askList({
     tools: [...(hitlTools ?? DEFAULT_HITL_TOOLS)],
     ask: askBridge,
@@ -228,4 +247,10 @@ export function buildToolGuard(
     reason: 'Human approval required (safety mode: auto)',
   });
   return compositeGuard(write, broadDenies, hitl);
+}
+
+function filterGuardByTool(guard: ToolGuard, tools?: string[]): ToolGuard {
+  if (!tools?.length) return guard;
+  const selected = new Set(tools);
+  return async (ctx) => selected.has(ctx.toolName) ? guard(ctx) : { action: 'allow' };
 }

@@ -179,6 +179,40 @@ describe('Agent API', () => {
   });
 });
 
+describe('Safety API', () => {
+  it('exposes and updates the auto approval classifier config', async () => {
+    await fetch(`${BASE}/api/config/tiers/fast`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelId: 'gpt-4o' }),
+    });
+
+    const initial = await fetch(`${BASE}/api/safety`).then(r => r.json());
+    expect(initial.classifier.enabled).toBe(true);
+    expect(initial.classifier.model).toBe('tier:fast');
+
+    const patched = await fetch(`${BASE}/api/safety/classifier`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-4o', enabled: false, skipStage2: true }),
+    });
+    expect(patched.ok).toBe(true);
+    const patchedData = await patched.json();
+    expect(patchedData.classifier).toMatchObject({
+      model: 'gpt-4o',
+      enabled: false,
+      skipStage2: true,
+    });
+
+    const snapshot = await fetch(`${BASE}/api/safety`).then(r => r.json());
+    expect(snapshot.classifier).toMatchObject({
+      model: 'gpt-4o',
+      enabled: false,
+      skipStage2: true,
+    });
+  });
+});
+
 describe('Session API', () => {
   it('GET /api/sessions returns empty initially', async () => {
     const res = await fetch(`${BASE}/api/sessions`);

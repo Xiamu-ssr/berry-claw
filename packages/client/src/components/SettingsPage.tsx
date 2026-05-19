@@ -75,6 +75,11 @@ interface ConfigPayload {
   tiers: Tiers;
   agents: Record<string, unknown>;
   defaultAgent: string;
+  safetyClassifier?: {
+    model?: string;
+    enabled?: boolean;
+    skipStage2?: boolean;
+  } | null;
 }
 
 interface CredentialItem {
@@ -95,13 +100,19 @@ type TabId = 'connections' | 'providers' | 'models' | 'tiers' | 'safety' | 'cred
 interface SafetySnapshot {
   levels: SafetyLevel[];
   globalLevel: SafetyLevel | null;
+  classifier?: {
+    enabled: boolean;
+    model: string | null;
+    configuredModel: string | null;
+    skipStage2: boolean;
+  };
 }
 
 const SAFETY_LEVELS: SafetyLevel[] = ['trust', 'default', 'auto'];
 const SAFETY_META: Record<SafetyLevel, { label: string; summary: string }> = {
   trust: { label: 'Trust', summary: '只拦截灾难级命令，不限制写入范围。' },
   default: { label: 'Default', summary: '限制写入范围，并拦截高危命令。' },
-  auto: { label: 'Auto', summary: 'Default + 高风险工具调用前询问。' },
+  auto: { label: 'Auto', summary: 'Default + LLM classifier 自动审批；无 classifier 时回退人工审批。' },
 };
 
 export default function SettingsPage() {
@@ -156,7 +167,7 @@ export default function SettingsPage() {
           {tab === 'providers' && config && <ProvidersTab config={config} presets={presets} onChange={refresh} />}
           {tab === 'models' && config && <ModelsTab config={config} onChange={refresh} />}
           {tab === 'tiers' && config && <TiersTab config={config} onChange={refresh} />}
-          {tab === 'safety' && <GlobalSafetyTab />}
+          {tab === 'safety' && config && <GlobalSafetyTab config={config} />}
           {tab === 'credentials' && <CredentialsTab />}
           {!config && tab !== 'connections' && (
             <EmptyState title="配置还在读取" body="如果一直停在这里，请检查后端实例连接和认证状态。" />
@@ -1138,9 +1149,10 @@ function TiersTab({ config, onChange }: { config: ConfigPayload; onChange: () =>
   );
 }
 
-function GlobalSafetyTab() {
+function GlobalSafetyTab({ config }: { config: ConfigPayload }) {
   const [snapshot, setSnapshot] = useState<SafetySnapshot | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingClassifier, setSavingClassifier] = useState(false);
 
   const refresh = useCallback(async () => {
     const res = await apiFetch(API.safety);
@@ -1170,36 +1182,115 @@ function GlobalSafetyTab() {
   };
 
   const value = snapshot?.globalLevel ?? null;
+  const classifier = snapshot?.classifier;
+  const classifierModel = classifier?.model ?? '';
+  const modelOptions = [
+    ...(config.tiers.fast ? ['tier:fast'] : []),
+    ...(config.tiers.balanced ? ['tier:balanced'] : []),
+    ...(config.tiers.strong ? ['tier:strong'] : []),
+    ...Object.keys(config.models),
+  ].filter((item, index, arr) => item && arr.indexOf(item) === index);
+
+  const patchClassifier = async (patch: { model?: string | null; enabled?: boolean; skipStage2?: boolean }) => {
+    setSavingClassifier(true);
+    try {
+      const res = await apiFetch(API.safetyClassifier, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      showToast({ title: 'Auto approval', message: 'Classifier updated' });
+      await refresh();
+    } catch (err) {
+      showToast({ variant: 'error', title: 'Classifier update failed', message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setSavingClassifier(false);
+    }
+  };
 
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-white/[0.035]">
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-          <ShieldCheck size={15} />
-          Global 安全策略
+    <div className="space-y-4">
+      <section className="rounded-xl border border-white/[0.08] bg-white/[0.035]">
+        <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+            <ShieldCheck size={15} />
+            Global 安全策略
+          </div>
+          {saving && <Loader2 size={14} className="animate-spin text-zinc-500" />}
         </div>
-        {saving && <Loader2 size={14} className="animate-spin text-zinc-500" />}
-      </div>
-      <div className="grid gap-3 p-4 md:grid-cols-2">
-        <SafetyOption
-          label="继承"
-          summary="未设置 global 时，系统底线为 default。"
-          active={value === null}
-          disabled={saving}
-          onClick={() => setGlobalLevel(null)}
-        />
-        {SAFETY_LEVELS.map((level) => (
+        <div className="grid gap-3 p-4 md:grid-cols-2">
           <SafetyOption
-            key={level}
-            label={SAFETY_META[level].label}
-            summary={SAFETY_META[level].summary}
-            active={value === level}
+            label="继承"
+            summary="未设置 global 时，系统底线为 default。"
+            active={value === null}
             disabled={saving}
-            onClick={() => setGlobalLevel(level)}
+            onClick={() => setGlobalLevel(null)}
           />
-        ))}
-      </div>
-    </section>
+          {SAFETY_LEVELS.map((level) => (
+            <SafetyOption
+              key={level}
+              label={SAFETY_META[level].label}
+              summary={SAFETY_META[level].summary}
+              active={value === level}
+              disabled={saving}
+              onClick={() => setGlobalLevel(level)}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-white/[0.08] bg-white/[0.035]">
+        <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
+            <Zap size={15} />
+            Auto approval classifier
+          </div>
+          {savingClassifier && <Loader2 size={14} className="animate-spin text-zinc-500" />}
+        </div>
+        <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div>
+            <label className="mb-1 block text-xs text-zinc-500">Classifier model</label>
+            <select
+              className="settings-input w-full"
+              value={classifierModel}
+              disabled={savingClassifier}
+              onChange={(event) => patchClassifier({ model: event.target.value || null })}
+            >
+              <option value="">Default model</option>
+              {modelOptions.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+            <div className="mt-2 text-xs leading-5 text-zinc-500">
+              当前：<span className="font-mono text-zinc-300">{classifier?.enabled === false ? 'disabled' : (classifierModel || 'HITL fallback')}</span>
+              {classifier?.configuredModel ? null : <span> · 默认选择 fast tier / first model</span>}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-black/15 px-3 py-2 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={classifier?.enabled ?? true}
+                disabled={savingClassifier}
+                onChange={(event) => patchClassifier({ enabled: event.target.checked })}
+              />
+              Enabled
+            </label>
+            <label className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-black/15 px-3 py-2 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={classifier?.skipStage2 ?? false}
+                disabled={savingClassifier}
+                onChange={(event) => patchClassifier({ skipStage2: event.target.checked })}
+              />
+              Skip Stage 2
+            </label>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
