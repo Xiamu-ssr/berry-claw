@@ -23,17 +23,17 @@ const BUILTIN_SKILLS_DEST = resolve(ROOT, 'skills/builtin');
 // different minor tracks (e.g. memory-file landed later), so a single range
 // doesn't work.
 const SDK_RANGES = {
-  '@berry-agent/core': '^0.5.0-alpha.0',
-  '@berry-agent/observe': '^0.5.0-alpha.0',
-  '@berry-agent/safe': '^0.5.0-alpha.0',
-  '@berry-agent/tools-common': '^0.5.0-alpha.0',
-  '@berry-agent/memory-file': '^0.5.0-alpha.0',
-  '@berry-agent/models': '^0.5.0-alpha.0',
-  '@berry-agent/prompt-pack': '^0.5.0-alpha.0',
-  '@berry-agent/team': '^0.5.0-alpha.0',
-  '@berry-agent/mcp': '^0.5.0-alpha.0',
+  '@berry-agent/core': '^0.5.0-alpha.1',
+  '@berry-agent/observe': '^0.5.0-alpha.1',
+  '@berry-agent/safe': '^0.5.0-alpha.1',
+  '@berry-agent/tools-common': '^0.5.0-alpha.1',
+  '@berry-agent/memory-file': '^0.5.0-alpha.1',
+  '@berry-agent/models': '^0.5.0-alpha.1',
+  '@berry-agent/prompt-pack': '^0.5.0-alpha.1',
+  '@berry-agent/team': '^0.5.0-alpha.1',
+  '@berry-agent/mcp': '^0.5.0-alpha.1',
 };
-const FALLBACK_RANGE = '^0.5.0-alpha.0';
+const FALLBACK_RANGE = '^0.5.0-alpha.1';
 
 const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf-8'));
 

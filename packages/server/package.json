@@ -1,6 +1,6 @@
 {
   "name": "@berry-agent/claw-server",
-  "version": "0.5.0-alpha.2",
+  "version": "0.5.0-alpha.3",
   "description": "Berry Claw server and CLI",
   "type": "module",
   "bin": {

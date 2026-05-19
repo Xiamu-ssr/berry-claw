@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentEntry } from './config-manager.js';
-import { AgentHome } from '@berry-agent/core';
+import { AgentHome, SystemPromptCacheMode, type SystemPromptInput } from '@berry-agent/core';
 
 export type PromptBlockSource =
   | 'project_context'
@@ -40,8 +40,10 @@ export function buildEnvContext(workspace: string, projectRoot?: string): string
   return lines.join('\n');
 }
 
-export function buildBaseSystemPrompt(entry: AgentEntry, workspace: string): string[] {
-  return [buildEnvContext(workspace, entry.project)];
+export function buildBaseSystemPrompt(entry: AgentEntry, workspace: string): SystemPromptInput {
+  return [
+    { text: buildEnvContext(workspace, entry.project), cache: SystemPromptCacheMode.Stable },
+  ];
 }
 
 export async function listPromptBlocks(params: {
@@ -79,7 +81,7 @@ export async function listPromptBlocks(params: {
     order: order++,
     active: true,
     scope: 'base',
-    cache: 'stable',
+    cache: 'dynamic',
     editable: false,
     text: buildEnvContext(workspace, entry.project),
   });

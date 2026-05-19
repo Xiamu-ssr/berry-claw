@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
   Brain,
@@ -46,13 +46,14 @@ import { useActiveInstance } from './connection';
 import { factStore } from './facts/store';
 import { useAgentFacts, useFactHydration, useTeamFacts } from './facts/useFacts';
 import type { AgentFact } from '@berry-agent/claw-contracts';
-import SettingsPage from './components/SettingsPage';
-import AgentsPage from './components/AgentsPage';
 import { SafetyAskDialog, type PendingSafetyAsk } from './components/SafetyAskDialog';
-import TeamsPage from './components/TeamsPage';
-import SkillMarketPage from './components/SkillMarketPage';
-import McpPage from './components/McpPage';
-import AuditPage from './components/AuditPage';
+
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
+const AgentsPage = lazy(() => import('./components/AgentsPage'));
+const TeamsPage = lazy(() => import('./components/TeamsPage'));
+const SkillMarketPage = lazy(() => import('./components/SkillMarketPage'));
+const McpPage = lazy(() => import('./components/McpPage'));
+const AuditPage = lazy(() => import('./components/AuditPage'));
 
 type ClientView = 'inbox' | 'projects' | 'team' | 'agents' | 'audit' | 'settings' | 'skills' | 'mcp';
 type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'max' | 'xhigh';
@@ -773,14 +774,25 @@ export default function App() {
             />
           )}
 
-          {activeView === 'team' && <TeamsPage />}
-          {activeView === 'agents' && <AgentsPage />}
-          {activeView === 'audit' && <AuditPage />}
-          {activeView === 'settings' && <SettingsPage />}
-          {activeView === 'skills' && <SkillMarketPage />}
-          {activeView === 'mcp' && <McpPage />}
+          <Suspense fallback={<PageFallback />}>
+            {activeView === 'team' && <TeamsPage />}
+            {activeView === 'agents' && <AgentsPage />}
+            {activeView === 'audit' && <AuditPage />}
+            {activeView === 'settings' && <SettingsPage />}
+            {activeView === 'skills' && <SkillMarketPage />}
+            {activeView === 'mcp' && <McpPage />}
+          </Suspense>
         </main>
       </div>
+    </div>
+  );
+}
+
+function PageFallback() {
+  return (
+    <div className="flex h-full min-h-0 items-center justify-center text-sm text-zinc-500">
+      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+      Loading
     </div>
   );
 }

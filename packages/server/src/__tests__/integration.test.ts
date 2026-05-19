@@ -6,10 +6,10 @@
  */
 import { config } from 'dotenv';
 import { resolve, join } from 'node:path';
-import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Agent, FileSessionStore } from '@berry-agent/core';
+import { Agent, AgentHome, AgentScope, FileSessionStore, SystemPromptCacheMode } from '@berry-agent/core';
 import { createObserver } from '@berry-agent/observe';
 import { compositeGuard, directoryScope } from '@berry-agent/safe';
 import { createAllTools } from '@berry-agent/tools-common';
@@ -32,7 +32,7 @@ let sessionManager: SessionManager;
 beforeAll(async () => {
   if (!API_KEY) throw new Error('BERRY_TEST_API_KEY not set in .env.local');
 
-  tmpDir = await mkdtemp(join(tmpdir(), 'berry-claw-integration-'));
+  tmpDir = await realpath(await mkdtemp(join(tmpdir(), 'berry-claw-integration-')));
   sessionsDir = join(tmpDir, 'sessions');
   await mkdir(sessionsDir, { recursive: true });
 
@@ -52,8 +52,11 @@ beforeAll(async () => {
       baseUrl: BASE_URL,
       model: MODEL,
     },
-    systemPrompt: 'You are a helpful assistant. Follow instructions precisely.',
-    tools: createAllTools(tmpDir),
+    home: new AgentHome(join(tmpDir, 'agent-home')),
+    systemPrompt: [
+      { text: 'You are a helpful assistant. Follow instructions precisely.', cache: SystemPromptCacheMode.Stable },
+    ],
+    tools: createAllTools(AgentScope.fromRoot(tmpDir)),
     cwd: tmpDir,
     sessionStore: new FileSessionStore(sessionsDir),
     toolGuard: compositeGuard(directoryScope(tmpDir)),
@@ -66,8 +69,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  observer.close();
-  await rm(tmpDir, { recursive: true, force: true });
+  observer?.close();
+  if (tmpDir) await rm(tmpDir, { recursive: true, force: true });
 });
 
 describe('Berry-Claw Integration', () => {
@@ -75,7 +78,7 @@ describe('Berry-Claw Integration', () => {
 
   it('1. basic Q&A — agent responds', async () => {
     const events: string[] = [];
-    const result = await agent.query('What is 2 + 3? Reply with just the number.', {
+    const result = await agent.send('What is 2 + 3? Reply with just the number.', {
       stream: true,
       onEvent: (e) => events.push(e.type),
     });
@@ -99,7 +102,7 @@ describe('Berry-Claw Integration', () => {
 
   it('2. tool calling — read files', async () => {
     const toolEvents: Array<{ name: string; input: unknown; isError?: boolean }> = [];
-    const result = await agent.query(
+    const result = await agent.send(
       'List the files in the current directory, then read README.md and tell me what this project is about.',
       {
         resume: sessionId,
@@ -128,7 +131,7 @@ describe('Berry-Claw Integration', () => {
   }, 30_000);
 
   it('3. tool calling — shell execution', async () => {
-    const result = await agent.query(
+    const result = await agent.send(
       'Run "echo hello-berry" in the shell and tell me the output.',
       { resume: sessionId, stream: true },
     );
@@ -143,7 +146,7 @@ describe('Berry-Claw Integration', () => {
   }, 30_000);
 
   it('4. tool calling — write file', async () => {
-    const result = await agent.query(
+    const result = await agent.send(
       'Create a file called "output.txt" with the content "Berry Claw was here!" and confirm it was created.',
       { resume: sessionId, stream: true },
     );
@@ -151,7 +154,7 @@ describe('Berry-Claw Integration', () => {
     expect(result.toolCalls).toBeGreaterThan(0);
 
     // Verify file actually exists
-    const readTools = createAllTools(tmpDir);
+    const readTools = createAllTools(AgentScope.fromRoot(tmpDir));
     const readFile = readTools.find(t => t.definition.name === 'read_file')!;
     const content = await readFile.execute({ path: 'output.txt' }, { cwd: tmpDir });
     expect(content.content).toContain('Berry Claw was here');
@@ -163,7 +166,7 @@ describe('Berry-Claw Integration', () => {
   }, 30_000);
 
   it('5. session resume — continues conversation', async () => {
-    const result = await agent.query(
+    const result = await agent.send(
       'What was the first math question I asked you? Just tell me the question.',
       { resume: sessionId, stream: true },
     );
@@ -215,7 +218,7 @@ describe('Berry-Claw Integration', () => {
     expect(after.model).toBe(MODEL);
 
     // Agent should still work after switch
-    const result = await agent.query('Say "switch-ok" and nothing else.', {
+    const result = await agent.send('Say "switch-ok" and nothing else.', {
       resume: sessionId,
       stream: true,
     });

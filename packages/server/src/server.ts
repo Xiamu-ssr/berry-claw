@@ -1150,7 +1150,7 @@ export async function startServer(port: number, options: StartServerOptions = {}
             // Two shapes accepted:
             //   { type:'chat', prompt:'hi', sessionId, agentId }                 — plain text
             //   { type:'chat', prompt:[{type:'text',...},{type:'image',data,mediaType}], sessionId, agentId }
-            //     — multimodal turn; blocks pass straight through to Agent.query().
+            //     — multimodal turn; blocks pass straight through to Agent.send().
             const payload = msg.prompt;
             await handleChat(ws, manager, payload, msg.sessionId, msg.requestId, msg.agentId);
             break;

@@ -7,7 +7,7 @@
 
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
-import { Agent, FileEventLogStore, FileSessionStore } from '@berry-agent/core';
+import { Agent, AgentHome, FileEventLogStore, FileSessionStore, SystemPromptCacheMode } from '@berry-agent/core';
 import fs from 'fs';
 import path from 'path';
 
@@ -37,7 +37,11 @@ const mockProvider = {
   },
 };
 
-function makeAgentConfig(sessionStore, eventLog) {
+function stablePrompt(text) {
+  return [{ text, cache: SystemPromptCacheMode.Stable }];
+}
+
+function makeAgentConfig(sessionStore, eventLog, homeRoot) {
   if (USE_REAL_API) {
     return {
       provider: {
@@ -46,7 +50,8 @@ function makeAgentConfig(sessionStore, eventLog) {
         baseUrl: BASE_URL,
         model: MODEL,
       },
-      systemPrompt: 'You are a helpful assistant. Keep answers very short (one sentence).',
+      home: new AgentHome(homeRoot),
+      systemPrompt: stablePrompt('You are a helpful assistant. Keep answers very short (one sentence).'),
       sessionStore,
       eventLogStore: eventLog,
       tools: [],
@@ -55,7 +60,8 @@ function makeAgentConfig(sessionStore, eventLog) {
     return {
       provider: { type: 'openai', apiKey: 'fake', model: 'gpt-4o-mini' },
       providerInstance: mockProvider,
-      systemPrompt: 'You are a helpful assistant. Keep answers short.',
+      home: new AgentHome(homeRoot),
+      systemPrompt: stablePrompt('You are a helpful assistant. Keep answers short.'),
       sessionStore,
       eventLogStore: eventLog,
       tools: [],
@@ -76,17 +82,18 @@ async function runTest() {
 
   const eventLog = new FileEventLogStore(TEST_DIR);
   const sessionStore = new FileSessionStore(path.join(TEST_DIR, 'sessions'));
+  const homeRoot = path.join(TEST_DIR, 'agent-home');
 
-  const agent = new Agent(makeAgentConfig(sessionStore, eventLog));
+  const agent = new Agent(makeAgentConfig(sessionStore, eventLog, homeRoot));
 
   console.log('\n📤 Query 1: "My favorite color is blue."');
-  const result1 = await agent.query('Remember this: my favorite color is blue. Just confirm.');
+  const result1 = await agent.send('Remember this: my favorite color is blue. Just confirm.');
   console.log(`📥 Response: "${result1.text.slice(0, 120)}..."`);
   console.log(`   Tokens: ${result1.usage.inputTokens} in / ${result1.usage.outputTokens} out`);
   const sessionId1 = result1.sessionId;
 
   console.log('\n📤 Query 2 (same session): "What is 7 * 8?"');
-  const result2 = await agent.query('What is 7 * 8? Just the number.', { resume: sessionId1 });
+  const result2 = await agent.send('What is 7 * 8? Just the number.', { resume: sessionId1 });
   console.log(`📥 Response: "${result2.text.slice(0, 120)}..."`);
 
   const sessionId = agent['_lastSessionId'];
@@ -113,13 +120,13 @@ async function runTest() {
   });
 
   // Phase 2: Simulate crash — new process → fresh Agent — resume by id.
-  //          Crash recovery is SDK-internal: product code just calls new Agent + query.
+  //          Crash recovery is SDK-internal: product code just calls new Agent + send.
   console.log('\n' + '━'.repeat(60));
-  console.log('Phase 2: Simulated restart — new Agent + query({resume})');
+  console.log('Phase 2: Simulated restart — new Agent + send({resume})');
   console.log('━'.repeat(60));
 
   console.log(`\n🔄 Creating fresh Agent, resuming ${sessionId}...`);
-  const agent2 = new Agent(makeAgentConfig(sessionStore, eventLog));
+  const agent2 = new Agent(makeAgentConfig(sessionStore, eventLog, homeRoot));
 
   console.log('🔄 Verifying session state before next query...');
   const sessionAfter = await agent2.getSession(sessionId);
@@ -159,7 +166,7 @@ async function runTest() {
   console.log('━'.repeat(60));
 
   console.log('\n📤 Query 3 (post-recovery, explicit resume): "What is my favorite color?"');
-  const result3 = await agent2.query('What is my favorite color? Just the color.', { resume: sessionId });
+  const result3 = await agent2.send('What is my favorite color? Just the color.', { resume: sessionId });
   console.log(`📥 Response: "${result3.text.slice(0, 120)}"`);
   console.log(`   Session ID: ${result3.sessionId}`);
 
@@ -195,9 +202,22 @@ async function runTest() {
 
   const fakeSessionId = 'ses_crash_simulation';
   const now = Date.now();
+  await sessionStore2.save({
+    id: fakeSessionId,
+    messages: [],
+    createdAt: now,
+    lastAccessedAt: now,
+    metadata: {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheWriteTokens: 0,
+      compactionCount: 0,
+    },
+  });
   const crashEvents = [
     { id: 'evt_1', timestamp: now, sessionId: fakeSessionId, turnId: 'start',
-      type: 'session_start', systemPrompt: ['Test agent.'],
+      type: 'session_start', systemPrompt: stablePrompt('Test agent.'),
       toolsAvailable: ['mock_tool'], guardEnabled: false,
       providerType: 'openai', model: 'gpt-4o-mini' },
     { id: 'evt_2', timestamp: now + 10, sessionId: fakeSessionId, turnId: 't1',
@@ -222,18 +242,19 @@ async function runTest() {
     definition: { name: 'mock_tool', description: 'test', inputSchema: { type: 'object' } },
     execute: async () => ({ content: 'ok', isError: false }),
   };
-  // New API: SDK internally detects crash on first query({resume}).
-  //          We verify by 1) attempting a query (which triggers resolveSession
+  // New API: SDK internally detects crash on first send({resume}).
+  //          We verify by 1) attempting a send (which triggers resolveSession
   //          → crash detection), 2) reading event log for the crash_recovered event.
   const recoveredAgent = new Agent({
     provider: { type: 'openai', apiKey: 'fake', model: 'gpt-4o-mini' },
-    systemPrompt: 'Test agent.',
+    home: new AgentHome(path.join(TEST_DIR2, 'agent-home')),
+    systemPrompt: stablePrompt('Test agent.'),
     tools: [mockTool],
     sessionStore: sessionStore2,
     eventLogStore: eventLog2,
   });
   try {
-    await recoveredAgent.query('noop', { resume: fakeSessionId });
+    await recoveredAgent.send('noop', { resume: fakeSessionId });
   } catch {
     // Expected: provider is fake, but resolveSession runs crash detection first
     // AND appends the crash_recovered event before the API call fails.

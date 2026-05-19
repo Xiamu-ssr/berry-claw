@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AlertTriangle, Brain, CheckCircle, ChevronDown, ChevronRight, CircleDot, Layers, Loader2, Network, ShieldCheck, Wrench } from 'lucide-react';
-import CodeBlock from './CodeBlock';
 import ToolCallCard from './ToolCallCard';
 import type { ChatMessage, ChatStep, ChatTimelineEvent, ChatTimelineItem, InferenceInfo, ToolCallInfo } from '@berry-agent/claw-contracts';
+
+const CodeBlock = lazy(() => import('./CodeBlock'));
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -554,13 +555,26 @@ function AssistantMarkdown({ content }: { content: string }) {
                 </code>
               );
             }
-            return <CodeBlock language={match?.[1] || ''} code={code} />;
+            return (
+              <Suspense fallback={<CodeBlockFallback language={match?.[1] || ''} code={code} />}>
+                <CodeBlock language={match?.[1] || ''} code={code} />
+              </Suspense>
+            );
           },
         }}
       >
         {content}
       </ReactMarkdown>
     </div>
+  );
+}
+
+function CodeBlockFallback({ language, code }: { language: string; code: string }) {
+  return (
+    <pre className="my-2 overflow-x-auto rounded-lg border border-white/[0.08] bg-black/30 px-4 py-3 text-xs leading-6 text-zinc-300">
+      <div className="mb-2 font-mono text-[11px] uppercase tracking-wide text-zinc-500">{language || 'text'}</div>
+      <code>{code}</code>
+    </pre>
   );
 }
 
