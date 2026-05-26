@@ -1,18 +1,24 @@
 import { z } from 'zod';
 import { zSafetyLevel } from './safety.js';
 import { zAgentHomeSnapshot, zProjectSharedPaths } from '@berry-agent/core/schema';
+import { zReasoningEffort } from '@berry-agent/core';
+import { mcpServerStatusSchema, mcpServerStatusViewSchema } from '@berry-agent/mcp';
 import { zWorklistTask } from '@berry-agent/team';
 import type {
   AgentHomeSnapshot,
   ProjectSharedPaths,
+  ReasoningEffort,
 } from '@berry-agent/core';
+import type { MCPServerStatus } from '@berry-agent/mcp';
 import type { WorklistTask } from '@berry-agent/team';
 
 export type AgentHomeFact = AgentHomeSnapshot;
 export type ProjectSharedPathsFact = ProjectSharedPaths;
 
-export const zReasoningEffort = z.enum(['none', 'low', 'medium', 'high', 'max', 'xhigh']);
-export type ReasoningEffort = z.infer<typeof zReasoningEffort>;
+// Re-exports keep existing consumers (`import { zReasoningEffort } from '@berry-agent/claw-contracts'`)
+// working, while making the SDK the single fact source.
+export { zReasoningEffort };
+export type { ReasoningEffort };
 
 export const zAgentStatus = z.enum([
   'idle',
@@ -28,17 +34,11 @@ export const zAgentStatus = z.enum([
 ]);
 export type AgentStatus = z.infer<typeof zAgentStatus>;
 
-export const zMCPServerStatus = z.enum(['connecting', 'connected', 'failed', 'disabled']);
-export type MCPServerStatus = z.infer<typeof zMCPServerStatus>;
+// Re-export SDK-owned MCP status schemas so Claw contracts has one fact source.
+export const zMCPServerStatus = mcpServerStatusSchema;
+export type { MCPServerStatus };
 
-export const zMCPServerFact = z.object({
-  name: z.string(),
-  connected: z.boolean(),
-  toolCount: z.number(),
-  status: zMCPServerStatus,
-  lastError: z.string().optional(),
-  lastStartedAt: z.string().optional(),
-});
+export const zMCPServerFact = mcpServerStatusViewSchema;
 export type MCPServerFact = z.infer<typeof zMCPServerFact>;
 
 export const zInstalledSkill = z.object({
