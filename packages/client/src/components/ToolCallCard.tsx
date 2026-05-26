@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Terminal, ChevronDown, ChevronRight, CheckCircle, XCircle, Loader2, ArrowRight, ArrowLeft, CircleDot,
 } from 'lucide-react';
@@ -20,7 +20,11 @@ interface ToolCallCardProps {
  * case we render an explicit pending output section instead of a blank card.
  */
 export default function ToolCallCard({ tool, settled = false }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!settled);
+
+  useEffect(() => {
+    setExpanded(!settled);
+  }, [settled]);
 
   const inputText = useMemo(() => formatPayload(tool.input), [tool.input]);
   const hasResult = tool.result !== undefined && tool.result !== null;
@@ -31,51 +35,56 @@ export default function ToolCallCard({ tool, settled = false }: ToolCallCardProp
 
   return (
     <div
-      className={`border rounded-lg my-2 overflow-hidden ${
+      className={`border rounded-xl my-2 overflow-hidden transition-all ${
         tool.isError
-          ? 'border-red-300 dark:border-red-900/50'
-          : 'border-gray-200 dark:border-gray-700'
+          ? 'border-red-500/20 bg-red-500/5'
+          : 'border-white/[0.04] bg-white/[0.015]'
       }`}
     >
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-white/[0.03] transition-colors text-left"
       >
-        <Terminal size={14} className="text-gray-400 flex-shrink-0" />
-        <span className="text-sm font-mono text-gray-600 dark:text-gray-300 flex-1 truncate">
+        <div className={`flex items-center justify-center w-5 h-5 rounded-md ${
+           pending ? 'bg-amber-400/10 text-amber-400' :
+           tool.isError ? 'bg-red-400/10 text-red-400' :
+           missingResult ? 'bg-zinc-500/10 text-zinc-400' :
+           'bg-teal-400/10 text-teal-400'
+        }`}>
+          <Terminal size={10} />
+        </div>
+        <span className="text-[12px] font-mono text-zinc-300 flex-1 truncate">
           {tool.name}
         </span>
         {pending ? (
-          <Loader2 size={14} className="text-gray-400 flex-shrink-0 animate-spin" />
+          <Loader2 size={12} className="text-amber-400 flex-shrink-0 animate-spin" />
         ) : tool.isError ? (
-          <XCircle size={14} className="text-red-400 flex-shrink-0" />
+          <XCircle size={12} className="text-red-400 flex-shrink-0" />
         ) : missingResult ? (
-          <CircleDot size={14} className="text-zinc-500 flex-shrink-0" />
+          <CircleDot size={12} className="text-zinc-500 flex-shrink-0" />
         ) : (
-          <CheckCircle size={14} className="text-green-500 flex-shrink-0" />
+          <CheckCircle size={12} className="text-teal-400 flex-shrink-0" />
         )}
-        {expanded
-          ? <ChevronDown size={14} className="text-gray-400 flex-shrink-0" />
-          : <ChevronRight size={14} className="text-gray-400 flex-shrink-0" />}
+        <ChevronRight size={12} className={`text-zinc-500 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
       </button>
 
       {expanded && (
-        <div className="bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-700">
+        <div className="bg-black/20 border-t border-white/[0.04]">
           <PayloadSection
             label="Input"
-            icon={<ArrowRight size={12} className="text-blue-500" />}
+            icon={<ArrowRight size={10} className="text-amber-400" />}
             content={inputText}
             empty={!inputText}
             defaultOpen
           />
           <PayloadSection
             label="Output"
-            icon={<ArrowLeft size={12} className="text-amber-500" />}
+            icon={<ArrowLeft size={10} className="text-teal-400" />}
             content={outputText}
             empty={!hasVisibleOutput}
-            emptyHint={pending ? 'Tool is running…' : hasResult ? 'Empty result' : 'Result not captured'}
+            emptyHint={pending ? 'Executing...' : hasResult ? 'Empty result' : 'Result not captured'}
             tone={tool.isError ? 'error' : 'normal'}
-            defaultOpen={hasResult}
+            defaultOpen={hasResult || pending}
           />
         </div>
       )}
@@ -108,30 +117,28 @@ function PayloadSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="border-b last:border-b-0 border-gray-100 dark:border-gray-800">
+    <div className="border-b last:border-b-0 border-white/[0.04]">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.02] transition-colors"
       >
         {icon}
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 flex-1">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500 flex-1">
           {label}
         </span>
-        {open
-          ? <ChevronDown size={12} className="text-gray-400" />
-          : <ChevronRight size={12} className="text-gray-400" />}
+        <ChevronRight size={12} className={`text-zinc-600 transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
         empty ? (
-          <div className="px-3 pb-2 pt-1 text-xs italic text-gray-400 dark:text-gray-600">
+          <div className="px-3 pb-2 pt-1 text-[11px] italic text-zinc-600">
             {emptyHint ?? '—'}
           </div>
         ) : (
           <pre
-            className={`px-3 pb-2 pt-1 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto ${
+            className={`px-3 pb-3 pt-1 text-[11px] font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto hide-scrollbar ${
               tone === 'error'
-                ? 'text-red-600 dark:text-red-400'
-                : 'text-gray-600 dark:text-gray-300'
+                ? 'text-red-400'
+                : 'text-zinc-300'
             }`}
           >
             {content}

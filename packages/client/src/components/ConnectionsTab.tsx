@@ -46,7 +46,7 @@ export function ConnectionsTab() {
         </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-emerald-600 hover:bg-emerald-500 text-white"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded bg-sky-300 hover:bg-sky-200 text-slate-950"
         >
           <Plus size={14} /> Add
         </button>
@@ -163,7 +163,7 @@ function InstanceRow({
               />
               <button
                 onClick={() => onSaveName(draftName.trim() || instance.name)}
-                className="text-xs text-emerald-600 dark:text-emerald-400"
+                className="text-xs text-teal-400 dark:text-teal-200"
               >
                 Save
               </button>
@@ -338,7 +338,7 @@ function ReplaceKeyModal({
         <button
           onClick={submit}
           disabled={busy || !pem.trim()}
-          className="px-3 py-1.5 text-sm rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+          className="px-3 py-1.5 text-sm rounded bg-sky-300 hover:bg-sky-200 text-slate-950 disabled:opacity-50"
         >
           {busy ? 'Verifying…' : 'Replace'}
         </button>

@@ -33,48 +33,7 @@ import {
   TextInput,
   WorkbenchPage,
 } from './workbench';
-import type { AgentFact, TeamFact } from '@berry-agent/claw-contracts';
-
-interface TeammateRecord {
-  id: string;
-  role: string;
-  systemPrompt: string;
-  model?: string;
-  createdAt: number;
-}
-
-interface TeamState {
-  name: string;
-  project: string;
-  leaderId: string;
-  teammates: TeammateRecord[];
-  createdAt: number;
-}
-
-interface TeamMessage {
-  id: string;
-  ts: number;
-  from: string;
-  to: string;
-  content: string;
-  replyTo?: string;
-}
-
-type WorklistStatus = 'unclaimed' | 'claimed' | 'in_progress' | 'done' | 'failed';
-
-interface WorklistTask {
-  id: string;
-  title: string;
-  description?: string;
-  status: WorklistStatus;
-  assignee?: string;
-  createdBy: string;
-  createdAt: number;
-  updatedAt: number;
-  completedAt?: number;
-  failureReason?: string;
-  tags?: string[];
-}
+import type { AgentFact, TeamFact, TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/claw-contracts';
 
 interface AgentSummary {
   id: string;
@@ -182,7 +141,7 @@ function TeamStage({
     : [];
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4">
+    <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#20242a]/75 p-4">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-zinc-300/25 to-transparent" />
       <div className="relative grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">
@@ -235,8 +194,8 @@ function TeamStage({
                 onClick={() => onSelect(team)}
                 className={`w-full rounded-lg border p-3 text-left transition-colors ${
                   team.leaderId === selectedTeam?.leaderId
-                    ? 'border-zinc-400/25 bg-white/[0.075]'
-                    : 'border-white/[0.07] bg-black/15 hover:border-white/[0.13] hover:bg-white/[0.05]'
+                    ? 'border-sky-200/24 bg-sky-200/[0.075]'
+                    : 'border-white/[0.07] bg-black/10 hover:border-sky-200/16 hover:bg-sky-200/[0.055]'
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -259,7 +218,7 @@ function TeamPortrait({ id, name, active }: { id: string; name: string; active?:
   return (
     <div
       className={`image-render-pixelated relative mx-auto flex h-16 w-16 items-center justify-center border p-1 ${
-        active ? 'border-amber-300/50 bg-amber-300/10 shadow-[0_16px_45px_rgba(0,0,0,0.22)]' : 'border-white/[0.10] bg-black/25'
+        active ? 'border-amber-300/50 bg-amber-300/10 shadow-[0_16px_45px_rgba(0,0,0,0.22)]' : 'border-white/[0.10] bg-black/10'
       }`}
       style={{ clipPath: 'polygon(0 8px, 8px 8px, 8px 0, calc(100% - 8px) 0, calc(100% - 8px) 8px, 100% 8px, 100% calc(100% - 8px), calc(100% - 8px) calc(100% - 8px), calc(100% - 8px) 100%, 8px 100%, 8px calc(100% - 8px), 0 calc(100% - 8px))' }}
     >
@@ -330,7 +289,7 @@ function NewTeamPanel({
             </Field>
           </div>
           {leader?.entry.project && (
-            <div className="mt-3 rounded-lg border border-white/[0.07] bg-black/15 px-3 py-2 font-mono text-xs text-zinc-500">
+            <div className="mt-3 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2 font-mono text-xs text-zinc-500">
               {leader.entry.project}
             </div>
           )}
@@ -397,7 +356,7 @@ function TeamDetail({ leaderId, onBack }: { leaderId: string; onBack: () => void
 
   const disband = async () => {
     if (!team) return;
-    if (!window.confirm(`Disband team "${team.name}"? Team files under project .berry will be removed.`)) return;
+    if (!window.confirm(`Disband team "${team.name}"? SDK team state will be removed and teammates will be detached.`)) return;
     setDisbanding(true);
     try {
       const res = await apiFetch(API.agentTeam(leaderId), { method: 'DELETE' });
@@ -491,12 +450,12 @@ function MembersPanel({ team, leaderName }: { team: TeamState; leaderName: strin
       </div>
       <div className="mt-3 space-y-2">
         {team.teammates.length === 0 ? (
-          <div className="rounded-lg bg-black/20 px-3 py-6 text-center text-xs text-zinc-600">
+          <div className="rounded-lg bg-black/10 px-3 py-6 text-center text-xs text-zinc-600">
             还没有 teammate。让 leader 在聊天里调用 spawn_teammate。
           </div>
         ) : (
           team.teammates.map((mate) => (
-            <div key={mate.id} className="rounded-lg border border-white/[0.07] bg-black/15 p-3">
+            <div key={mate.id} className="rounded-lg border border-white/[0.07] bg-black/10 p-3">
               <div className="text-sm font-medium text-zinc-100">{mate.role}</div>
               <div className="mt-1 font-mono text-xs text-zinc-500">{mate.id}</div>
               {mate.model && <div className="mt-1 text-xs text-zinc-600">{mate.model}</div>}
@@ -509,8 +468,8 @@ function MembersPanel({ team, leaderName }: { team: TeamState; leaderName: strin
 }
 
 function WorklistPanel({ tasks }: { tasks: WorklistTask[] }) {
-  const order: WorklistStatus[] = ['unclaimed', 'claimed', 'in_progress', 'done', 'failed'];
-  const grouped = order.reduce<Record<WorklistStatus, WorklistTask[]>>(
+  const order: WorklistTaskStatus[] = ['unclaimed', 'claimed', 'in_progress', 'done', 'failed'];
+  const grouped = order.reduce<Record<WorklistTaskStatus, WorklistTask[]>>(
     (acc, status) => ({ ...acc, [status]: tasks.filter((task) => task.status === status) }),
     { unclaimed: [], claimed: [], in_progress: [], done: [], failed: [] },
   );
@@ -518,7 +477,7 @@ function WorklistPanel({ tasks }: { tasks: WorklistTask[] }) {
   return (
     <SectionCard title={`Worklist · ${tasks.length}`} icon={<ListChecks size={15} />}>
       {tasks.length === 0 ? (
-        <div className="rounded-lg bg-black/20 px-3 py-6 text-center text-xs text-zinc-600">
+        <div className="rounded-lg bg-black/10 px-3 py-6 text-center text-xs text-zinc-600">
           暂无任务。Worklist 应由 agent 工具维护，UI 只做观测。
         </div>
       ) : (
@@ -532,7 +491,7 @@ function WorklistPanel({ tasks }: { tasks: WorklistTask[] }) {
                 </div>
                 <div className="space-y-2">
                   {grouped[status].map((task) => (
-                    <div key={task.id} className="rounded-lg border border-white/[0.07] bg-black/15 p-3">
+                    <div key={task.id} className="rounded-lg border border-white/[0.07] bg-black/10 p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 break-words text-sm font-medium text-zinc-100">{task.title}</div>
                         <Pill tone={statusTone(status)}>{task.id}</Pill>
@@ -559,7 +518,7 @@ function MessageLog({ messages }: { messages: TeamMessage[] }) {
   return (
     <SectionCard title={`Agent 消息 · ${messages.length}`} icon={<MessageSquare size={15} />}>
       {messages.length === 0 ? (
-        <div className="rounded-lg bg-black/20 px-3 py-6 text-center text-xs text-zinc-600">
+        <div className="rounded-lg bg-black/10 px-3 py-6 text-center text-xs text-zinc-600">
           还没有 leader 和 teammate 的内部消息。
         </div>
       ) : (
@@ -570,7 +529,7 @@ function MessageLog({ messages }: { messages: TeamMessage[] }) {
               className={`rounded-lg border p-3 ${
                 message.from === '@leader'
                   ? 'border-amber-400/20 bg-amber-400/10'
-                  : 'border-white/[0.07] bg-black/15'
+                  : 'border-white/[0.07] bg-black/10'
               }`}
             >
               <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500">
@@ -588,7 +547,7 @@ function MessageLog({ messages }: { messages: TeamMessage[] }) {
   );
 }
 
-function StatusIcon({ status }: { status: WorklistStatus }) {
+function StatusIcon({ status }: { status: WorklistTaskStatus }) {
   switch (status) {
     case 'unclaimed': return <Circle size={10} />;
     case 'claimed': return <CircleDot size={10} />;
@@ -598,7 +557,7 @@ function StatusIcon({ status }: { status: WorklistStatus }) {
   }
 }
 
-function statusTone(status: WorklistStatus): 'neutral' | 'good' | 'warn' | 'bad' | 'info' {
+function statusTone(status: WorklistTaskStatus): 'neutral' | 'good' | 'warn' | 'bad' | 'info' {
   if (status === 'done') return 'good';
   if (status === 'failed') return 'bad';
   if (status === 'in_progress') return 'info';

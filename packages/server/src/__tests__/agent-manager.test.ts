@@ -49,7 +49,7 @@ async function createManager(agentTools?: string[]) {
     ...(agentTools ? { tools: agentTools } : {}),
   });
   manager.config.update({ defaultAgent: 'coder' });
-  manager.initAgent('coder');
+  manager.getRuntime('coder');
 
   return manager;
 }
@@ -70,12 +70,12 @@ describe('AgentManager tool wiring', () => {
       expect(toolNames).toContain('web_search');
       expect(toolNames).not.toContain('browser');
 
-      const webSearch = (manager.getAgent('coder') as any).tools.get('web_search');
-      const result = await webSearch.execute({ query: 'berry claw' }, { cwd: manager.config.agentWorkspace('coder') });
-      expect(result.isError).toBe(true);
-      expect(result.content).toMatch(/not configured/i);
+      const webFetch = runtime!.tools.find(tool => tool.name === 'web_fetch');
+      expect(webFetch?.group).toBe('web');
+      const webSearch = runtime!.tools.find(tool => tool.name === 'web_search');
+      expect(webSearch?.group).toBe('web');
     } finally {
-      manager.close();
+      await manager.close();
     }
   });
 
@@ -98,7 +98,32 @@ describe('AgentManager tool wiring', () => {
       expect(toolNames).not.toContain('web_fetch');
       expect(toolNames).not.toContain('web_search');
     } finally {
-      manager.close();
+      await manager.close();
     }
+  });
+
+  it('destroys SDK agent instances when product runtime reloads', async () => {
+    const manager = await createManager();
+
+    try {
+      const oldRuntime = manager.getRuntime('coder');
+      expect(oldRuntime.isDestroyed).toBe(false);
+
+      await manager.reloadRuntime();
+
+      expect(oldRuntime.isDestroyed).toBe(true);
+      expect(manager.getRuntime('coder')).not.toBe(oldRuntime);
+    } finally {
+      await manager.close();
+    }
+  });
+
+  it('destroys SDK agent instances when manager closes', async () => {
+    const manager = await createManager();
+    const oldRuntime = manager.getRuntime('coder');
+
+    await manager.close();
+
+    expect(oldRuntime.isDestroyed).toBe(true);
   });
 });

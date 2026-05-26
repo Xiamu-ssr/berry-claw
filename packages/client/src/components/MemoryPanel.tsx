@@ -1,13 +1,13 @@
 /**
- * MemoryPanel — per-agent MEMORY.md editor + shared project knowledge viewer.
+ * MemoryPanel — SDK personal memory editor + shared project knowledge viewer.
  *
  * Shown inside the AgentsPage detail view. Two sources:
  *
- * 1. Personal memory: `{workspace}/MEMORY.md` — editable textarea.
- *    Owned by this one agent. Auto-flushed before hard compactions.
+ * 1. Personal memory — editable textarea. Owned by this one SDK agent.
+ *    Auto-flushed before hard compactions.
  *
- * 2. Project knowledge: `{project}/AGENTS.md` — read-only preview. Shared
- *    across teammates and maintained by humans as the project fact source.
+ * 2. Project knowledge — read-only preview. Shared across teammates and
+ *    maintained by humans as the project fact source.
  */
 import { useEffect, useState } from 'react';
 import { Save, Loader2, Brain, BookOpen } from 'lucide-react';
@@ -123,7 +123,7 @@ export default function MemoryPanel({ agentId, hasProject }: MemoryPanelProps) {
           </div>
           {knowledge.length === 0 ? (
             <div className="text-xs text-gray-400 italic">
-              No project AGENTS.md yet. Create one in the project root to inject shared project context.
+              No project knowledge yet. Save project knowledge from the context editor to inject shared context.
             </div>
           ) : (
             <div className="space-y-2">

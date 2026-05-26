@@ -1,24 +1,16 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, BrowserView, WebContentsView, ipcMain, shell } = require('electron');
 const path = require('node:path');
-const fs = require('node:fs');
+const { createBrowserSurfaceManager } = require('./browser-surface.cjs');
+const { resolveClientUrl } = require('./client-url.cjs');
 
-function resolveClientUrl() {
-  if (process.env.BERRY_CLAW_CLIENT_URL) {
-    return process.env.BERRY_CLAW_CLIENT_URL;
-  }
-
-  if (!app.isPackaged) {
-    return 'http://127.0.0.1:3211';
-  }
-
-  const packagedIndex = path.join(process.resourcesPath, 'client', 'index.html');
-  if (fs.existsSync(packagedIndex)) {
-    return `file://${packagedIndex}`;
-  }
-
-  const devIndex = path.resolve(__dirname, '../../client/dist/index.html');
-  return `file://${devIndex}`;
-}
+let mainWindow;
+const browserSurfaceManager = createBrowserSurfaceManager({
+  BrowserView,
+  WebContentsView,
+  ipcMain,
+  shell,
+  getMainWindow: () => mainWindow,
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -32,18 +24,26 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
+  mainWindow = win;
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  win.loadURL(resolveClientUrl());
+  win.on('closed', () => {
+    browserSurfaceManager.dispose();
+    mainWindow = undefined;
+  });
+
+  win.loadURL(resolveClientUrl(app, __dirname));
 }
 
 app.whenReady().then(() => {
+  browserSurfaceManager.installIpc();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

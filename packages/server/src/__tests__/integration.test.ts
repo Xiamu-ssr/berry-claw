@@ -6,15 +6,13 @@
  */
 import { config } from 'dotenv';
 import { resolve, join } from 'node:path';
-import { mkdtemp, writeFile, rm, mkdir, realpath } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm, mkdir, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Agent, AgentHome, AgentScope, FileSessionStore, SystemPromptCacheMode } from '@berry-agent/core';
+import { Agent, AgentHome, AgentScope, MemoryCredentialStore, SystemPromptCacheMode } from '@berry-agent/core';
 import { createObserver } from '@berry-agent/observe';
 import { compositeGuard, directoryScope } from '@berry-agent/safe';
-import { createAllTools } from '@berry-agent/tools-common';
-// No default system prompt — agent uses custom prompt or workspace AGENTS.md
-import { SessionManager } from '../engine/session-manager.js';
+import { createLocalWorkspaceHand } from '@berry-agent/tools-common';
 
 // Load env
 config({ path: resolve(import.meta.dirname, '../../.env.local') });
@@ -24,17 +22,13 @@ const BASE_URL = process.env.BERRY_TEST_BASE_URL;
 const MODEL = process.env.BERRY_TEST_MODEL ?? 'anthropic/claude-haiku-4.5';
 
 let tmpDir: string;
-let sessionsDir: string;
 let agent: Agent;
 let observer: ReturnType<typeof createObserver>;
-let sessionManager: SessionManager;
 
 beforeAll(async () => {
   if (!API_KEY) throw new Error('BERRY_TEST_API_KEY not set in .env.local');
 
   tmpDir = await realpath(await mkdtemp(join(tmpdir(), 'berry-claw-integration-')));
-  sessionsDir = join(tmpDir, 'sessions');
-  await mkdir(sessionsDir, { recursive: true });
 
   // Create test files
   await writeFile(join(tmpDir, 'README.md'), '# Test Project\n\nA simple test project for Berry Claw integration testing.');
@@ -43,7 +37,6 @@ beforeAll(async () => {
   await writeFile(join(tmpDir, 'src/index.ts'), 'export const greeting = "Hello from Berry Claw";\n\nconsole.log(greeting);\n');
 
   observer = createObserver({ dbPath: join(tmpDir, 'observe.db') });
-  sessionManager = new SessionManager();
 
   agent = new Agent({
     provider: {
@@ -56,9 +49,13 @@ beforeAll(async () => {
     systemPrompt: [
       { text: 'You are a helpful assistant. Follow instructions precisely.', cache: SystemPromptCacheMode.Stable },
     ],
-    tools: createAllTools(AgentScope.fromRoot(tmpDir)),
+    hands: [
+      createLocalWorkspaceHand({
+        scope: AgentScope.fromRoot(tmpDir),
+        credentials: new MemoryCredentialStore(),
+      }),
+    ],
     cwd: tmpDir,
-    sessionStore: new FileSessionStore(sessionsDir),
     toolGuard: compositeGuard(directoryScope(tmpDir)),
     middleware: [observer.middleware],
     onEvent: observer.onEvent,
@@ -90,13 +87,6 @@ describe('Berry-Claw Integration', () => {
     expect(events).toContain('text_delta');
     expect(events).toContain('query_end');
 
-    // Record in session manager
-    sessionManager.addUserMessage(sessionId, 'What is 2 + 3?');
-    sessionManager.addAssistantMessage(sessionId, result.text, undefined, {
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-    });
-
     console.log(`  ✅ Session: ${sessionId}`);
   }, 30_000);
 
@@ -121,12 +111,6 @@ describe('Berry-Claw Integration', () => {
     expect(toolEvents.some(t => t.name === 'list_files' || t.name === 'read_file')).toBe(true);
     expect(result.text.toLowerCase()).toContain('test');
 
-    sessionManager.addUserMessage(sessionId, 'List files and read README.md');
-    sessionManager.addAssistantMessage(sessionId, result.text, toolEvents, {
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-    });
-
     console.log(`  ✅ Tool calls: ${toolEvents.map(t => t.name).join(', ')}`);
   }, 30_000);
 
@@ -138,9 +122,6 @@ describe('Berry-Claw Integration', () => {
 
     expect(result.toolCalls).toBeGreaterThan(0);
     expect(result.text.toLowerCase()).toContain('hello-berry');
-
-    sessionManager.addUserMessage(sessionId, 'Run echo hello-berry');
-    sessionManager.addAssistantMessage(sessionId, result.text);
 
     console.log(`  ✅ Shell execution verified`);
   }, 30_000);
@@ -154,13 +135,8 @@ describe('Berry-Claw Integration', () => {
     expect(result.toolCalls).toBeGreaterThan(0);
 
     // Verify file actually exists
-    const readTools = createAllTools(AgentScope.fromRoot(tmpDir));
-    const readFile = readTools.find(t => t.definition.name === 'read_file')!;
-    const content = await readFile.execute({ path: 'output.txt' }, { cwd: tmpDir });
-    expect(content.content).toContain('Berry Claw was here');
-
-    sessionManager.addUserMessage(sessionId, 'Create output.txt');
-    sessionManager.addAssistantMessage(sessionId, result.text);
+    const content = await readFile(join(tmpDir, 'output.txt'), 'utf-8');
+    expect(content).toContain('Berry Claw was here');
 
     console.log(`  ✅ File written and verified`);
   }, 30_000);
@@ -193,8 +169,9 @@ describe('Berry-Claw Integration', () => {
     console.log(`  ✅ Tools used: ${tools.map(t => `${t.name}(${t.callCount})`).join(', ')}`);
   });
 
-  it('7. session manager — message history complete', () => {
-    const messages = sessionManager.getMessages(sessionId);
+  it('7. SDK session view — message history complete', async () => {
+    const view = await agent.getSessionView(sessionId);
+    const messages = view?.messages ?? [];
     expect(messages.length).toBeGreaterThanOrEqual(8); // 4 user + 4 assistant minimum
     expect(messages.filter(m => m.role === 'user').length).toBeGreaterThanOrEqual(4);
     expect(messages.filter(m => m.role === 'assistant').length).toBeGreaterThanOrEqual(4);

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Berry Claw 产品对齐文档</title>
   <style>
-    :root { color-scheme: light dark; --fg: #202124; --muted: #667085; --line: #d0d5dd; --bg: #ffffff; --panel: #f8fafc; --accent: #2563eb; }
-    @media (prefers-color-scheme: dark) { :root { --fg: #e5e7eb; --muted: #9ca3af; --line: #374151; --bg: #0b0f14; --panel: #111827; --accent: #60a5fa; } }
+    :root { color-scheme: light dark; --fg: #202124; --muted: #667085; --line: #d0d5dd; --bg: #ffffff; --panel: #f8fafc; --accent: #2563eb; --warn: #b45309; --bad: #b91c1c; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #e5e7eb; --muted: #9ca3af; --line: #374151; --bg: #0b0f14; --panel: #111827; --accent: #60a5fa; --warn: #fbbf24; --bad: #f87171; } }
     body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     main { max-width: 1120px; margin: 0 auto; padding: 40px 24px 80px; }
     h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
@@ -23,6 +23,29 @@
     th { background: var(--panel); }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     a { color: var(--accent); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; color: var(--muted); background: var(--panel); font-size: 12px; }
+    .note { border-left: 3px solid var(--accent); background: var(--panel); padding: 12px 14px; border-radius: 6px; }
+    .map { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 14px; align-items: stretch; margin: 18px 0 24px; }
+    .lane { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 16px; }
+    .lane h3 { margin: 0 0 10px; }
+    .lane ul { margin: 0; padding-left: 18px; }
+    .lane.core { border-color: color-mix(in srgb, var(--accent) 65%, var(--line)); background: color-mix(in srgb, var(--panel) 88%, var(--accent)); }
+    .swim { display: grid; grid-template-columns: 190px 1fr 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 14px 0 24px; }
+    .swim div { padding: 12px; border-bottom: 1px solid var(--line); }
+    .swim div:nth-child(3n+1) { background: var(--panel); font-weight: 700; }
+    .swim div:nth-last-child(-n+3) { border-bottom: 0; }
+    .status-bad { color: var(--bad); font-weight: 700; }
+    .status-good { color: var(--accent); font-weight: 700; }
+    .status-warn { color: var(--warn); font-weight: 700; }
+    .device-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+    .device { border: 1px solid var(--line); background: var(--panel); border-radius: 9px; padding: 14px; }
+    .device strong { display: block; margin-bottom: 4px; }
+    @media (max-width: 800px) {
+      .map { grid-template-columns: 1fr; }
+      .swim { grid-template-columns: 1fr; }
+      .swim div { border-bottom: 1px solid var(--line); }
+      .swim div:nth-last-child(-n+3) { border-bottom: 1px solid var(--line); }
+    }
   </style>
 </head>
 <body>
@@ -33,38 +56,109 @@
   <h2>定位</h2>
   <p><strong>Berry Claw</strong> 是基于 Berry Agent SDK 的产品。它不是 SDK 本体，而是把 SDK 能力包装成可运行的后端实例、Web 前台、桌面客户端和手机客户端。</p>
   <div class="grid">
-    <section class="card"><strong>后台</strong><br><code>@berry-agent/claw-server</code>：Node server、CLI、REST/WebSocket、实例密钥、配置管理、内置 Web UI。</section>
-    <section class="card"><strong>前台</strong><br><code>@berry-agent/claw-client</code>：同一份 React/Vite UI，被浏览器、Electron、Capacitor 复用。</section>
-    <section class="card"><strong>平台壳</strong><br><code>claw-desktop</code> 打 macOS/Windows/Linux；<code>claw-mobile</code> 打 Android/iOS。</section>
+    <section class="card"><strong>后台</strong><br><code>@berry-agent/claw-server</code>：host adapter、CLI、REST/WebSocket、实例密钥、产品配置、SDK runtime 挂载。</section>
+    <section class="card"><strong>前台</strong><br><code>@berry-agent/claw-client</code>：桌面/Web 产品 UI；渲染 SDK session view、facts、approval、files、browser，不拥有 agent state。</section>
+    <section class="card"><strong>平台壳</strong><br><code>claw-desktop</code> 提供 Electron 原生能力；<code>claw-mobile</code> 应做移动专用 UI，复用协议和 runtime，不原样塞桌面三栏。</section>
+  </div>
+
+  <h2>重构北极星：Claw 是 Host，不是 Harness</h2>
+  <p class="note">Claw 的长期目标不是继续扩张成“另一个 SDK”。它应该站在 Anthropic managed-agent 图里的 Orchestration/Host 位置：选择运行位置、连接用户、注册能力、展示状态；agent turn、session、tool loop、approval 语义必须回到 SDK runtime。</p>
+  <div class="map" aria-label="Berry Claw target architecture">
+    <section class="lane">
+      <h3>Client / Shell</h3>
+      <ul>
+        <li>chat UI</li>
+        <li>approval UI</li>
+        <li>file/browser/session panels</li>
+        <li>human annotation draft</li>
+        <li>desktop native browser view</li>
+      </ul>
+    </section>
+    <section class="lane core">
+      <h3>SDK Managed Runtime</h3>
+      <ul>
+        <li>session/event/message facts</li>
+        <li>run / pause / resume / wake</li>
+        <li>context builder + provider call</li>
+        <li>tool loop + safety + approval event</li>
+        <li>hands/MCP/sandbox lifecycle</li>
+      </ul>
+    </section>
+    <section class="lane">
+      <h3>Claw Server Host</h3>
+      <ul>
+        <li>auth and connection</li>
+        <li>product config</li>
+        <li>agent root selection</li>
+        <li>REST/WS bridge</li>
+        <li>credential UI + scoped vault</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>应该迁出的逻辑</h2>
+  <div class="swim">
+    <div>领域</div><div>现在的位置</div><div>目标位置</div>
+    <div>Agent 初始化</div><div><span class="status-good">SDK <code>@berry-agent/runtime</code> 组装 harness</span>：provider、context window、execution environment provider、workspace hand、file memory、safe、observe、skills、PromptPack、AgentHome、environment prompt、runtime registry/supervisor/scheduler 和默认 agent MCP seed 已上移；Claw <code>AgentRuntimeFactory</code> 只把产品 <code>AgentEntry</code>、host tools、credential/observer/config 映射成 SDK builder 参数。</div><div><span class="status-good">Claw 是 host adapter</span>：<code>AgentManager</code> 现阶段通过 SDK <code>ManagedRuntimeRegistry</code> 挂载 runtime、同步 MCP、发布 facts、处理 REST 控制；下一步应迁到 SDK <code>ManagedRuntimeSupervisor</code> / <code>ManagedRuntimeWakeScheduler</code>，避免产品层拥有 run lease / wake 状态机。</div>
+    <div>MCP 生命周期</div><div><span class="status-good">SDK MCPManager + Claw config wrapper</span>：连接状态、Hand 投影、标准文件名、默认 Playwright 模板、默认配置写入和 npx/package normalization 已迁出；Claw 只做三层路径语义。</div><div><span class="status-good">SDK hands/MCP</span> 管 lazy start、status、tool adapter；Claw 只编辑配置和展示状态。</div>
+    <div>Approval</div><div><span class="status-good">产品 UI + SDK ApprovalBroker + SDK event log</span>：Claw 不保存 pending map，request/decision 已写入 SDK session events。</div><div><span class="status-good">SDK event log</span> 继续承担 request/decision/resume cursor；Claw 只是渲染和提交 human decision。</div>
+    <div>Session view</div><div><span class="status-good">SDK ManagedAgentRuntime + session view + Claw FactBus</span>：历史、active session、chat turn glue、context size 从 SDK 派生。</div><div>继续减少 REST shaping，把 Claw server 压成 host adapter。</div>
+    <div>Built-in tools</div><div><span class="status-good">Claw berry-tools 已收窄</span>：只剩 read-only <code>berry_status</code> / <code>berry_config_get</code> host introspection。</div><div>管理 API 走 host control plane；真正给 agent 的 hands 走 SDK capability registry。</div>
+    <div>Contracts</div><div><span class="status-good">Claw contracts</span> 已复用 SDK content、chat/session、AgentHome、ProjectSharedPaths、team/worklist schema，并定义 config/models/prompt-packs/prompt-blocks/sessions/credentials/skills/safety REST envelope 和 WebSocket command schema。</div><div>SDK 导出 domain schema；Claw contracts 只定义 transport envelope、产品 AgentEntry 和 UI-only facts。</div>
+    <div>Team host</div><div><span class="status-good"><code>TeamHost</code></span> 承担 SDK Team 到产品 AgentEntry 的桥接；冷启动加载通过 <code>AgentManager.ensureTeamsLoaded()</code> / <code>resolveTeamForAgent()</code>，route 层不再知道 rehydrate 细节。</div><div>SDK Team 继续拥有 team/worklist/message/disband；Claw 只做 host-side agent registry 映射和 facts。</div>
+    <div>Host adapters</div><div><span class="status-good"><code>AgentSessionHost</code> / <code>AgentContextHost</code> / <code>AgentFileHost</code> / <code>AgentChatHost</code> / <code>AgentMcpHost</code> / <code>AgentReloadHost</code> / <code>AgentLifecycleHost</code></span> 从 <code>AgentManager</code> 拆出 SDK session、approval event、memory、project knowledge、prompt block、只读 file browser、chat turn、MCP attach/release、runtime rebuild/reload 和 restart 访问。</div><div><code>AgentManager</code> 保持 facade/cache/facts 协调；SDK 仍拥有 session/event/context/file-browser/runtime 语义。</div>
+    <div>Server routes</div><div><span class="status-good"><code>server.ts</code> 已降为 composition root</span>；auth/config/agent/facts/safety/skills/MCP/team/session/system 等 REST API 拆到 <code>routes/*</code>，SDK-agent detail 访问集中在 <code>sdk-agent-routes.ts</code>。</div><div>入口只负责 manager/auth/app 组装、路由注册、静态资源和 HTTP 启动。</div>
+    <div>WS chat stream</div><div><span class="status-good"><code>ws/chat-handler.ts</code> + <code>ws/server.ts</code></span> 分别负责 SDK <code>AgentEvent</code> 投影和 WS 建连/FactBus 广播/控制消息；<code>server.ts</code> 不再夹带长实现。</div><div>Safety approval 只拿 broadcast 函数，SDK safe 继续拥有 approval lifecycle。</div>
+    <div>Product config</div><div><span class="status-good"><code>config-schema.ts</code> + <code>ClawHome</code></span> 分别拥有产品 config schema/normalization 和产品目录布局；<code>ConfigManager</code> 只保留公共配置 API。</div><div>Claw 只拥有产品配置和路径选择，不把 SDK agent home 内部结构复制到产品层。</div>
+  </div>
+
+  <h2>跨端策略</h2>
+  <div class="device-grid">
+    <section class="device"><strong>Desktop</strong>Electron shell + native browser view + filesystem affordances。可承载最完整的 workspace 面板。</section>
+    <section class="device"><strong>Web</strong>远程连接后台实例；浏览器能力受 Web sandbox 限制，不能假装拥有桌面级 native browser。</section>
+    <section class="device"><strong>Mobile</strong>移动专用 UI：线程、审批、diff、文件预览、截图/注解、运行状态。复用 contracts/runtime，不复用桌面三栏布局。</section>
+    <section class="device"><strong>Server</strong>长期进程和 host control plane；不保存第二份 agent 数据，不把 session 做成产品数据库。</section>
   </div>
 
   <h2>产品模块</h2>
   <table>
     <thead><tr><th>模块</th><th>职责</th><th>事实源</th></tr></thead>
     <tbody>
-      <tr><td>收件箱</td><td>多 session 聊天和 agent 行为 timeline。</td><td>SDK <code>events.jsonl</code> 渲染历史；<code>messages.json</code> 只服务 LLM context。</td></tr>
-      <tr><td>智能体</td><td>agent 身份、项目绑定、PromptPack、模型、记忆、Skill、MCP、工具、安全 override。</td><td><code>~/.berry-claw/agents/&lt;id&gt;</code> 和 SDK agent home。</td></tr>
-      <tr><td>项目</td><td>project 信息、绑定 agent/team、项目级 context 和 <code>.berry</code> 数据。</td><td>项目目录和产品 facts。</td></tr>
+      <tr><td>收件箱</td><td>多 session 聊天和 agent 行为 timeline；前端只接收 SDK session view 和流式事件。</td><td>SDK <code>events.jsonl</code> 渲染历史；<code>messages.json</code> 只服务 LLM context；Claw 后端不维护第二份消息缓存。</td></tr>
+      <tr><td>智能体</td><td>agent 身份、项目绑定、PromptPack、模型、记忆、Skill、MCP、工具、安全 override。</td><td><code>~/.berry-claw/agents/&lt;id&gt;</code> 作为 agent home 根目录；内部结构由 SDK <code>AgentHome</code> 决定。</td></tr>
+      <tr><td>项目</td><td>project 信息、绑定 agent/team、项目级 context 和 <code>.berry</code> 数据。</td><td>项目目录 + 后端 facts；具体路径来自 SDK <code>projectSharedPaths</code>，前台不硬编码。</td></tr>
       <tr><td>团队</td><td>leader/teammate、worklist、团队消息，不直接编辑单个 agent 细节。</td><td>SDK team 原语 + 产品 facts。</td></tr>
       <tr><td>Skill</td><td>全局市场、安装、启用，per-agent 控制跳转到 agent 配置。</td><td>全局 skills 目录 + agent skills 可见性。</td></tr>
       <tr><td>MCP</td><td>global/project/agent 三层 MCP 配置和连接状态。</td><td>产品配置 + SDK MCP adapter。</td></tr>
-      <tr><td>设置</td><td>后端实例、provider、模型、tier、credential、全局安全策略。</td><td><code>~/.berry-claw/config.json</code> 和本地 client instance store。</td></tr>
+      <tr><td>设置</td><td>后端实例、provider、模型、tier、credential、全局安全策略、auto safety classifier 模型覆写。</td><td><code>~/.berry-claw/config.json</code> 和本地 client instance store；classifier 默认值由 SDK safe 解析。</td></tr>
       <tr><td>审计</td><td>observe session、turn、成本、cache、guard、compaction。</td><td>SDK observe 数据库/API。</td></tr>
     </tbody>
   </table>
+
+  <h2>前端边界</h2>
+  <ul>
+    <li><code>App.tsx</code> 只负责实例连接、全局 view 切换、runtime store 编排和顶层布局；不再内联导航 chrome、右侧工作区、复合输入框或项目详情页面。</li>
+    <li><code>app/AppNavigation</code> 拥有桌面侧栏和移动顶部导航；<code>inbox/InboxView</code> 只编排聊天工作区，agent/session 选择器、空态、context meter、inference details 拆成独立 inbox 组件。</li>
+    <li><code>WorkspaceRail</code> 是按需 lazy chunk，只负责右侧栏布局和 tab 分发；<code>workspace/BrowserRail</code>、<code>workspace/FilesRail</code>、<code>workspace/SessionRailContent</code> 分别拥有桌面浏览器注解、只读文件浏览、session history/todo 展示。</li>
+    <li><code>ChatInput</code> 拥有人类复合草稿：text、image、annotation、队列、interject、reasoning/model 控件；未发送草稿不进入 SDK session。</li>
+    <li><code>MessageBubble</code> 只负责单条消息壳、用户输入块和 inference disclosure；turn activity、timeline、tool folding 在 <code>message/TurnActivity</code>，Markdown lazy wrapper 在 <code>message/AssistantMarkdownView</code>。</li>
+    <li><code>AgentsPage</code> 只负责选中 agent、读取 facts 和调用 host control plane；agent 列表、身份面板、编辑器、portrait/helper、装备槽模块在 <code>agents/*</code>。</li>
+    <li><code>ProjectsPage</code> 只展示 project 聚合、SDK <code>projectSharedPaths</code> 和项目级 safety 控制；项目聚合 hook 在 <code>projects/summary</code>，页面本身 lazy-load。</li>
+    <li><code>settings/*</code> 拥有连接、主题、凭证、provider、model、tier、safety、共享表单控件和 model-catalog event；<code>components/mcp/McpServerRow</code> 是 MCP row 的共享渲染事实源；<code>SettingsPage</code> 只是小型 composition shell，并用 lazy tab chunk 避免一次加载完整设置 UI。</li>
+  </ul>
 
   <h2>代码量统计</h2>
   <p class="muted">统计口径：排除 <code>node_modules</code>、<code>dist</code>、<code>coverage</code>、<code>.git</code> 等生成物；统计非空非注释行；测试按 <code>__tests__</code> / <code>.test.*</code> / <code>.spec.*</code>。</p>
   <table>
     <thead><tr><th>分组</th><th class="num">逻辑代码</th><th class="num">后端</th><th class="num">前端</th><th class="num">测试</th><th class="num">合计</th><th class="num">文件</th></tr></thead>
     <tbody>
-      <tr><td>frontend</td><td class="num">0</td><td class="num">0</td><td class="num">9160</td><td class="num">283</td><td class="num">9443</td><td class="num">43</td></tr>
-      <tr><td>backend</td><td class="num">0</td><td class="num">5182</td><td class="num">0</td><td class="num">922</td><td class="num">6104</td><td class="num">40</td></tr>
-      <tr><td>contracts</td><td class="num">407</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">407</td><td class="num">7</td></tr>
+      <tr><td>frontend</td><td class="num">0</td><td class="num">0</td><td class="num">10814</td><td class="num">360</td><td class="num">11174</td><td class="num">68</td></tr>
+      <tr><td>backend</td><td class="num">0</td><td class="num">4395</td><td class="num">0</td><td class="num">1229</td><td class="num">5624</td><td class="num">60</td></tr>
+      <tr><td>contracts</td><td class="num">719</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">719</td><td class="num">8</td></tr>
       <tr><td>scripts</td><td class="num">63</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">63</td><td class="num">1</td></tr>
-      <tr><td>desktop-shell</td><td class="num">0</td><td class="num">0</td><td class="num">104</td><td class="num">0</td><td class="num">104</td><td class="num">2</td></tr>
+      <tr><td>desktop-shell</td><td class="num">0</td><td class="num">0</td><td class="num">192</td><td class="num">0</td><td class="num">192</td><td class="num">4</td></tr>
       <tr><td>mobile-shell</td><td class="num">0</td><td class="num">0</td><td class="num">11</td><td class="num">0</td><td class="num">11</td><td class="num">1</td></tr>
-      <tr><th>合计</th><th class="num">470</th><th class="num">5182</th><th class="num">9275</th><th class="num">1205</th><th class="num">16132</th><th class="num">94</th></tr>
+      <tr><th>合计</th><th class="num">782</th><th class="num">4395</th><th class="num">11017</th><th class="num">1589</th><th class="num">17783</th><th class="num">142</th></tr>
     </tbody>
   </table>
 
@@ -91,9 +185,44 @@ npm run build:mobile</code></pre>
 
   <h2>SDK 边界</h2>
   <ul>
-    <li>Claw 不重复实现 SDK runtime：agent lifecycle、provider messages、event log、tool loop、MCP adapter、Skill loader、PromptPack、memory、safe 属于 SDK。</li>
+    <li>Claw 不重复实现 SDK runtime：agent lifecycle、provider messages、session view hydrate、event log、tool loop、MCP adapter、Skill loader、PromptPack、memory、safe、observe collector、context-window inference、execution environment contract 和 environment prompt 属于 SDK。</li>
     <li>Claw 负责产品事实和交互：server instance、auth、UI state、facts bus、REST/WebSocket、平台壳、配置页面。</li>
-    <li>聊天历史只能从 <code>events.jsonl</code> 构造 timeline；不能从 compact 后的 <code>messages.json</code> 还原产品历史。</li>
+    <li>删除产品 <code>AgentEntry</code> 只删除 registry row；Claw 不移动、不归档、不删除 SDK-owned agent home。后续如果需要清理数据，应由 SDK 提供显式 data lifecycle API。</li>
+    <li>丢弃或关闭 live runtime 必须先调用 SDK <code>ManagedAgentRuntime.destroy()</code>；Claw 可以释放产品侧引用和 MCP 投影，但 hand、memory provider、sleep/interject waiter 的关闭语义属于 SDK。</li>
+    <li>项目共享数据路径属于 SDK：Claw server 只把 <code>projectSharedPaths</code> 投影进 facts，Claw contracts 复用 SDK schema，Claw client 只显示后端给出的路径。</li>
+    <li>项目级 safety 配置属于 SDK safe：Claw 可以编辑 <code>level</code>，但读写 <code>.berry/safety.json</code> 的语义不在产品层复制。</li>
+    <li>人类输入块、AgentHome、ProjectSharedPaths schema 来自 SDK <code>@berry-agent/core/schema</code>；chat/session view schema 来自 SDK <code>@berry-agent/core/chat-schema</code>；team/worklist schema 来自 SDK <code>@berry-agent/team</code>；Claw contracts 只给 WebSocket/REST 包 transport envelope。</li>
+    <li>配置、模型目录、PromptPack、prompt block、session list/detail、credential、skill market、team 和 safety snapshot 的 REST payload shape 属于 <code>@berry-agent/claw-contracts</code>；对应 request body 和 WebSocket command 也应使用 contracts schema 校验，client 不再 mirror server payload interface，server 测试必须用 contracts schema 校验实际响应。</li>
+    <li>产品 AgentEntry shape 属于 <code>@berry-agent/claw-contracts</code>，并由 <code>ConfigManager</code> 严格校验；运行时 lifecycle 字段不能进入产品 config。</li>
+    <li>team 能力通过 SDK <code>Hand</code> 挂载；Claw 不再逐个注册 team tool。</li>
+    <li>team runtime/product adapter 属于 Claw <code>TeamHost</code>；SDK Team 仍是团队状态和 artifact lifecycle 的唯一语义来源。</li>
+    <li>HITL pending approval 生命周期属于 SDK safe <code>ApprovalBroker</code>；Claw server 只广播问题和接收 human decision，不维护第二个 pending map。</li>
+    <li>approval request/decision 已写入 SDK <code>events.jsonl</code>；Claw 只把 broker 快照转交给 SDK <code>appendSessionEvent</code>。</li>
+    <li>session facts 已进入统一 <code>FactBus</code>；创建、加载、聊天完成和删除会话都从 SDK <code>AgentSessionView</code> 派生事实。</li>
+    <li>MCP server 生命周期属于 SDK <code>@berry-agent/mcp</code> 的 <code>MCPManager</code> / <code>MCPToolCenter</code>；Claw server 只提供三层配置路径、REST 操作和 facts 投影。enable/disable/restart 后，Claw 以 <code>MCPManager.getHandsForAgent()</code> 为事实源同步 live runtime 的 MCP Hands，不保留第二套 MCP tool 状态；MCP 批量断连的清理/报错语义属于 SDK。</li>
+    <li>MCP 标准文件名、默认 Playwright MCP 模板、默认配置写入、raw config shape validation 和内置 MCP package normalization 来自 SDK <code>@berry-agent/mcp</code>；Claw 不维护第二份 <code>mcp-constants</code>、npx 解析、MCP schema 校验或默认文件写入逻辑。</li>
+    <li>本地 workspace tool hand 由 SDK <code>@berry-agent/tools-common</code> 的 <code>createLocalWorkspaceHand</code> 组装；OS sandbox 是 SDK <code>ExecutionEnvironmentProvider</code> 的一种实现，Claw 只选择 workspace/project、credential、allow-list 和未来的容器/远程 runner provider。</li>
+    <li>shell、sandbox shell 和 MCP stdio 的默认 command env 来自 SDK <code>createCommandEnvironment()</code>；Claw 不应把 provider/API credentials 通过全局 <code>process.env</code> 透传给 agent runner，需要时必须显式 scoped 注入。</li>
+    <li>Claw inspect、facts 和 UI 只能看到 SDK <code>ProviderPublicConfig</code>；真实 provider <code>apiKey</code> 不应出现在 runtime snapshot、REST response 或 WebSocket facts 中。</li>
+    <li>Claw agent model 只保存 <code>tier:X</code>、<code>model:X</code> 或 bare model id；自定义 provider 的 type/baseUrl/apiKey 只能在 config Layer-1 <code>ProviderInstance</code> 中维护，不能用 <code>raw:</code> model string 绕过 SDK models registry。</li>
+    <li>auto safety classifier 和 managed guard pipeline 属于 SDK safe；Claw 只负责在 Settings 中显示、启用/禁用、覆写模型，并把配置持久化到 <code>~/.berry-claw/config.json</code>。</li>
+    <li>agent memory / project knowledge 文件只能通过 SDK Agent API 读写；Claw 不在 cold agent 分支里直接读取 <code>MEMORY.md</code> 或项目 <code>AGENTS.md</code>。</li>
+    <li>prompt block 编辑和 teammate instructions 写入都通过 SDK <code>Agent.read/writeInstructions</code> 与 <code>writeProjectKnowledge</code>；Claw 不直接写 agent workspace 文件。</li>
+    <li>team rehydrate 判断通过 SDK team 的 <code>readTeamLeaderId(project)</code> 完成；Claw 不直接解析 <code>.berry/team.json</code>。</li>
+    <li>team disband 通过 SDK <code>Team.disband()</code> 删除团队/worklist artifacts；Claw 只移除产品侧 teammate AgentEntry。</li>
+    <li>聊天历史通过 SDK <code>getSessionView/listSessionViews</code> 从 <code>events.jsonl</code> 构造；event log 读写由 SDK <code>zSessionEvent</code> 校验，实时 timeline 通过 SDK <code>timelineEventFromAgentEvent</code> 投影；不能从 compact 后的 <code>messages.json</code> 还原产品历史，也不能在 Claw 后端保存第二份消息状态。</li>
+    <li>session/chat lifecycle 和 context size 通过 SDK <code>ManagedAgentRuntime</code> 执行；Claw 不维护 active-session map，也不自己拼 pending user / assistant hydrate 或读取 session token metadata。</li>
+    <li>Claw 的 live agent runtime 组装已上移到 SDK <code>@berry-agent/runtime</code>；Claw <code>AgentRuntimeFactory</code> 只是产品配置适配器，<code>AgentManager</code> 现阶段用 SDK <code>ManagedRuntimeRegistry</code> 管 live runtime mount/drop/replace，并 await teardown，不再直接拼 provider、hands、memory、safe、observe、skills。SDK 已提供 <code>ManagedRuntimeSupervisor</code> / <code>ManagedRuntimeWakeScheduler</code> 作为下一步运行所有权和后台唤醒边界，Claw 不应再新增自己的 lease/wake/job 状态机。</li>
+    <li>Claw 为每个 agent 选择的 sandbox/container/remote execution environment 交给 SDK <code>ExecutionEnvironmentProvider</code> 供给，并由 SDK runtime lifecycle/registry 持有；runtime reload/delete/close 时 await <code>ManagedAgentRuntime.destroy()</code>，确保 hand、memory provider 和环境释放完成后才继续，后续容器/远程 worker 也按这个边界接入。</li>
+    <li><code>AgentSessionHost</code> 负责 SDK session view/fact/delete/todo 和 approval request/decision event 持久化；<code>AgentContextHost</code> 负责 SDK memory/project knowledge/prompt block API；<code>AgentFileHost</code> 负责只读 file browser。</li>
+    <li><code>AgentChatHost</code> 负责 live turn dispatch 和 observe cost enrichment；<code>AgentMcpHost</code> 负责 per-agent MCP hand sync/release；<code>AgentReloadHost</code> 负责 runtime rebuild/reload/model switching；<code>AgentLifecycleHost</code> 负责 restart/reload runtime。</li>
+    <li><code>config-schema.ts</code> 是产品 config schema/normalization 事实源；<code>ClawHome</code> 是产品目录布局事实源。<code>ConfigManager</code> 不再同时承载 schema、路径和业务配置变更。</li>
+    <li><code>claw-desktop</code> 的 native Chromium browser hosting 在 <code>browser-surface.cjs</code>；client URL resolution 在 <code>client-url.cjs</code>；SDK 不接触 Electron BrowserView/WebContentsView。</li>
+    <li><code>server.ts</code> 是 composition root：REST handlers 拆到 <code>routes/*</code>，WS 建连和控制消息拆到 <code>ws/server.ts</code>，chat stream 投影拆到 <code>ws/chat-handler.ts</code>。</li>
+    <li>WebSocket chat streaming 通过 <code>ws/chat-handler.ts</code> 投影 SDK events；<code>server.ts</code> 不承载长 stream switch 逻辑。</li>
+    <li>新建和恢复 session 走 REST + SDK <code>AgentSessionView</code>；WebSocket 不再有 <code>new_session</code>、<code>resume_session</code>、<code>session_created</code>、<code>session_resumed</code> 旧事件。</li>
+    <li>agent 激活和模型切换走 REST control plane；WebSocket 不再有 <code>switch_agent</code>、<code>switch_model</code>、<code>agent_switched</code>、<code>model_switched</code> 旧事件。</li>
+    <li><code>berry_status</code> 和 <code>berry_config_get</code> 是只读 host introspection；配置写入、tier/model 修改、restart 属于 REST/UI host control plane，不作为 agent tool 暴露。</li>
   </ul>
 
   <h2>代码规范</h2>

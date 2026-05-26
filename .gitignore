@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.logs/
+.tmp/
 .DS_Store
 *.tsbuildinfo
 .berry-claw/
@@ -8,5 +10,7 @@ dist/
 .env.local
 .playwright-cli/
 packages/server/.playwright-mcp/
+packages/server/web-dist/
+packages/server/package.json.prepack-backup
 packages/server/session-debug.json
 packages/server/berry-claw-*.png

@@ -3,7 +3,7 @@ import { Bot, Plug, Server } from 'lucide-react';
 import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useSystemFact } from '../facts/useFacts';
 import { EmptyState, Pill, SectionCard, WorkbenchPage } from './workbench';
-import { McpServerRow } from './SettingsPage';
+import McpServerRow from './mcp/McpServerRow';
 
 export default function McpPage() {
   const system = useSystemFact();
@@ -23,9 +23,9 @@ export default function McpPage() {
       title="MCP"
       description="MCP 是独立工具层：global 共享、project 继承、agent 覆盖。这里看运行状态和开关。"
     >
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-2">
+      <div className="min-h-0 w-full h-full overflow-y-auto px-4 md:px-8 py-6 hide-scrollbar">
+        <div className="space-y-6 pb-20">
+          <div className="grid gap-6 xl:grid-cols-2">
             <SectionCard
               title="Global MCP"
               subtitle="共享服务器由 uTool / 全局配置托管，这里只看状态，不提供删除或关闭。"
@@ -55,11 +55,16 @@ export default function McpPage() {
               ) : (
                 <div className="space-y-3">
                   {agentMcpRows.map(({ agent, server }) => (
-                    <div key={`${agent.id}:${server.name}`} className="rounded-xl border border-white/[0.07] bg-black/15 p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-zinc-100">{agent.name}</div>
-                          <div className="truncate font-mono text-[11px] text-zinc-600">{agent.id}</div>
+                    <div key={`${agent.id}:${server.name}`} className="rounded-2xl border border-white/[0.04] bg-white/[0.015] shadow-sm backdrop-blur-md transition-all hover:bg-white/[0.03] p-4">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-3">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--theme-primary-soft)] text-[var(--theme-primary)]">
+                            <Bot size={14} />
+                          </div>
+                          <div>
+                            <div className="truncate text-[13px] font-semibold tracking-wide text-zinc-100">{agent.name}</div>
+                            <div className="truncate font-mono text-[10px] text-zinc-500">{agent.id}</div>
+                          </div>
                         </div>
                         <Pill>{agent.project ? 'project-bound' : 'workspace-only'}</Pill>
                       </div>

@@ -59,7 +59,7 @@ export function InstancePicker() {
                       </span>
                     </span>
                     {inst.id === active.id && (
-                      <Check size={14} className="text-emerald-500 shrink-0" />
+                      <Check size={14} className="text-teal-300 shrink-0" />
                     )}
                   </button>
                 </li>

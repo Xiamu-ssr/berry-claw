@@ -17,7 +17,7 @@ export default function AuditPage() {
       title="审计"
       description="查看 SDK 记录的 session、turn、推理、成本、缓存、guard 和 compaction。"
     >
-      <div className="h-[calc(100vh-64px)] min-h-0 overflow-hidden bg-gray-900">
+      <div className="h-[calc(100vh-64px)] min-h-0 overflow-hidden bg-[#1b1e22]">
         <ObserveApp baseUrl={API.observe} fetcher={observeFetcher} />
       </div>
     </WorkbenchPage>

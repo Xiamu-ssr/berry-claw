@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import { zSafetyLevel } from './safety.js';
+import { zAgentHomeSnapshot, zProjectSharedPaths } from '@berry-agent/core/schema';
+import { zWorklistTask } from '@berry-agent/team';
+import type {
+  AgentHomeSnapshot,
+  ProjectSharedPaths,
+} from '@berry-agent/core';
+import type { WorklistTask } from '@berry-agent/team';
+
+export type AgentHomeFact = AgentHomeSnapshot;
+export type ProjectSharedPathsFact = ProjectSharedPaths;
 
 export const zReasoningEffort = z.enum(['none', 'low', 'medium', 'high', 'max', 'xhigh']);
 export type ReasoningEffort = z.infer<typeof zReasoningEffort>;
@@ -12,6 +22,8 @@ export const zAgentStatus = z.enum([
   'memory_flushing',
   'delegating',
   'sleeping',
+  'tool_use',
+  'paused',
   'error',
 ]);
 export type AgentStatus = z.infer<typeof zAgentStatus>;
@@ -53,13 +65,19 @@ export const zSkillMarketItem = z.object({
 });
 export type SkillMarketItem = z.infer<typeof zSkillMarketItem>;
 
+export const zAgentHomeFact = zAgentHomeSnapshot;
+
+export const zProjectSharedPathsFact = zProjectSharedPaths;
+
 export const zAgentFact = z.object({
   id: z.string(),
   name: z.string(),
   model: z.string(),
   provider: z.string(),
   workspace: z.string(),
+  home: zAgentHomeFact,
   project: z.string().optional(),
+  projectPaths: zProjectSharedPathsFact.optional(),
   status: zAgentStatus,
   statusDetail: z.string().optional(),
   isActive: z.boolean(),
@@ -77,28 +95,21 @@ export const zAgentFact = z.object({
 });
 export type AgentFact = z.infer<typeof zAgentFact>;
 
-export const zWorklistTask = z.object({
-  id: z.string(),
-  status: z.string().optional(),
-}).passthrough();
-export type WorklistTask = {
-  id: string;
-  status?: string;
-};
-
 export const zTeamFact = z.object({
   id: z.string(),
   name: z.string(),
   project: z.string(),
+  projectPaths: zProjectSharedPathsFact,
   leaderId: z.string(),
   teammates: z.array(z.object({ agentId: z.string(), role: z.string() })),
-  worklist: z.array(z.unknown()),
+  worklist: z.array(zWorklistTask),
   messageCount: z.number(),
 });
 export interface TeamFact {
   id: string;
   name: string;
   project: string;
+  projectPaths: ProjectSharedPathsFact;
   leaderId: string;
   teammates: Array<{ agentId: string; role: string }>;
   worklist: WorklistTask[];
@@ -114,9 +125,14 @@ export const zSystemFact = z.object({
 });
 export type SystemFact = z.infer<typeof zSystemFact>;
 
+export const zSessionStatus = z.enum(['idle', 'running', 'interrupted']);
+export type SessionStatus = z.infer<typeof zSessionStatus>;
+
 export const zSessionFact = z.object({
   id: z.string(),
   agentId: z.string(),
+  title: z.string().optional(),
+  status: zSessionStatus,
   messageCount: z.number(),
   turnCount: z.number(),
   tokensUsed: z.number(),

@@ -144,6 +144,11 @@ export const API = {
     `/api/agents/${encodeURIComponent(id)}/prompt-blocks/${encodeURIComponent(blockId)}`,
   agentMemory: (id: string) => `/api/agents/${encodeURIComponent(id)}/memory`,
   agentProjectKnowledge: (id: string) => `/api/agents/${encodeURIComponent(id)}/project/knowledge`,
+  agentFiles: (id: string, path?: string) =>
+    `/api/agents/${encodeURIComponent(id)}/files` +
+    (path ? `?path=${encodeURIComponent(path)}` : ''),
+  agentFileContent: (id: string, path: string) =>
+    `/api/agents/${encodeURIComponent(id)}/files/content?path=${encodeURIComponent(path)}`,
 
   // Teams (keyed by leader agent id)
   agentTeam: (leaderId: string) => `/api/agents/${encodeURIComponent(leaderId)}/team`,
@@ -155,6 +160,13 @@ export const API = {
 
   // Sessions
   sessions: '/api/sessions',
+  session: (id: string, agentId?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (agentId) params.set('agentId', agentId);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    return `/api/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ''}`;
+  },
   sessionTodos: (id: string, agentId?: string) =>
     `/api/sessions/${encodeURIComponent(id)}/todos` +
     (agentId ? `?agentId=${encodeURIComponent(agentId)}` : ''),

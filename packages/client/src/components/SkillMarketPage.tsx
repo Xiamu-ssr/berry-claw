@@ -13,7 +13,7 @@ import {
 import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useSystemFact } from '../facts/useFacts';
 import { showToast } from './Toast';
-import type { InstalledSkill, SkillMarketItem } from '@berry-agent/claw-contracts';
+import type { InstalledSkill, SkillMarketItem, SkillSourceId, SkillSourceInfo } from '@berry-agent/claw-contracts';
 import {
   EmptyState,
   IconButton,
@@ -25,21 +25,13 @@ import {
   WorkbenchPage,
 } from './workbench';
 
-type SourceId = 'clawhub';
-
-interface SourceMeta {
-  id: SourceId;
-  displayName: string;
-  available: boolean;
-}
-
 export default function SkillMarketPage() {
   const system = useSystemFact();
   const agents = useAgentFacts();
   const installed: InstalledSkill[] = useMemo(() => system?.installedSkills ?? [], [system?.installedSkills]);
   const installedNames = useMemo(() => new Set(installed.map((skill) => skill.name)), [installed]);
-  const [sources, setSources] = useState<SourceMeta[]>([]);
-  const [activeSource, setActiveSource] = useState<SourceId>('clawhub');
+  const [sources, setSources] = useState<SkillSourceInfo[]>([]);
+  const [activeSource, setActiveSource] = useState<SkillSourceId>('clawhub');
   const [query, setQuery] = useState('');
   const [items, setItems] = useState<SkillMarketItem[]>([]);
   const [visibleLimit, setVisibleLimit] = useState(40);
@@ -51,7 +43,7 @@ export default function SkillMarketPage() {
     apiFetch(API.skillsSources)
       .then((res) => res.json())
       .then((data) => {
-        const list = (data.sources ?? []) as SourceMeta[];
+        const list = (data.sources ?? []) as SkillSourceInfo[];
         setSources(list);
         const firstAvailable = list.find((source) => source.available);
         if (firstAvailable && !list.find((source) => source.id === activeSource && source.available)) {
@@ -156,8 +148,8 @@ export default function SkillMarketPage() {
                       disabled={!source.available}
                       className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                         source.id === activeSource
-                          ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
-                          : 'border-white/[0.07] bg-black/15 text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+                          ? 'border-sky-300/30 bg-sky-300/10 text-sky-100'
+                          : 'border-white/[0.07] bg-black/10 text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
                       }`}
                     >
                       <span>{source.displayName}</span>
@@ -259,14 +251,14 @@ function InstalledSkills({
   onUninstall: (name: string) => void;
 }) {
   if (installed.length === 0) {
-    return <div className="rounded-lg bg-black/20 px-3 py-6 text-center text-xs text-zinc-600">Nothing installed</div>;
+    return <div className="rounded-lg bg-black/10 px-3 py-6 text-center text-xs text-zinc-600">Nothing installed</div>;
   }
   return (
     <div className="space-y-2">
       {installed.map((skill) => {
         const busy = uninstallingName === skill.name;
         return (
-          <div key={skill.name} className="rounded-lg border border-white/[0.07] bg-black/15 p-3">
+          <div key={skill.name} className="rounded-lg border border-white/[0.07] bg-black/10 p-3">
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-zinc-100">{skill.name}</div>
@@ -304,7 +296,7 @@ function MarketSkillCard({
     typeof item.stars === 'number';
 
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-black/15 p-4 transition-colors hover:border-white/[0.13] hover:bg-white/[0.04]">
+    <div className="rounded-xl border border-white/[0.07] bg-black/10 p-4 transition-colors hover:border-white/[0.13] hover:bg-white/[0.04]">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

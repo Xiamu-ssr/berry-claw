@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { KeyRound, Loader2, PlugZap, Server } from 'lucide-react';
 import {
   InvalidPemError,
   addInstance,
@@ -154,72 +155,93 @@ export function ConnectSetupScreen({
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-gray-950 text-gray-100 p-6 overflow-auto">
+    <div className="fixed inset-0 flex items-center justify-center overflow-auto bg-[#17191c] p-4 text-zinc-100 sm:p-6">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-xl rounded-lg border border-gray-800 bg-gray-900 shadow-xl p-6 space-y-4"
+        className="w-full max-w-2xl overflow-hidden rounded-2xl border border-white/[0.08] bg-[#20242a]/90 shadow-[0_24px_80px_rgba(0,0,0,0.28)]"
       >
-        <div>
-          <h1 className="text-lg font-semibold">{title}</h1>
-          <p className="text-xs text-gray-400 mt-1">
-            Point at a berry-claw server and paste the private key from{' '}
-            <code className="font-mono bg-gray-800 px-1 py-0.5 rounded">berry-claw key show</code>.
-          </p>
+        <div className="border-b border-white/[0.07] bg-[#1d2126]/85 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-sky-300/25 bg-sky-300/10 text-sky-200">
+              <PlugZap size={19} />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold text-zinc-50">{title}</h1>
+              <p className="mt-1 text-sm leading-5 text-zinc-500">
+                Point at a berry-claw server and paste the private key from{' '}
+                <code className="rounded-md border border-white/[0.08] bg-black/10 px-1.5 py-0.5 font-mono text-[12px] text-zinc-300">
+                  berry-claw key show
+                </code>
+                .
+              </p>
+            </div>
+          </div>
         </div>
 
-        <label className="block">
-          <span className="block text-xs text-gray-400 mb-1">Name (optional)</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. laptop-dev"
-            disabled={busy}
-            className="w-full px-3 py-2 text-sm rounded bg-gray-800 border border-gray-700 focus:border-gray-500 focus:outline-none text-gray-100"
-          />
-        </label>
+        <div className="space-y-4 px-5 py-5">
+          <label className="block">
+            <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+              <Server size={13} />
+              Name (optional)
+            </span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. laptop-dev"
+              disabled={busy}
+              className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
+            />
+          </label>
 
-        <label className="block">
-          <span className="block text-xs text-gray-400 mb-1">Server endpoint</span>
-          <input
-            type="text"
-            value={endpoint}
-            onChange={(e) => setEndpoint(e.target.value)}
-            placeholder={DEFAULT_DEV_API_BASE}
-            disabled={busy}
-            className="w-full px-3 py-2 text-sm font-mono rounded bg-gray-800 border border-gray-700 focus:border-gray-500 focus:outline-none text-gray-100"
-          />
-        </label>
+          <label className="block">
+            <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+              <PlugZap size={13} />
+              Server endpoint
+            </span>
+            <input
+              type="text"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+              placeholder={DEFAULT_DEV_API_BASE}
+              disabled={busy}
+              className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
+            />
+          </label>
 
-        <label className="block">
-          <span className="block text-xs text-gray-400 mb-1">Private key (PEM)</span>
-          <textarea
-            value={pem}
-            onChange={(e) => setPem(e.target.value)}
-            placeholder={'-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'}
-            disabled={busy}
-            rows={6}
-            className="w-full px-3 py-2 text-xs font-mono rounded bg-gray-800 border border-gray-700 focus:border-gray-500 focus:outline-none text-gray-100"
-          />
-          <span className="block text-[11px] text-gray-500 mt-1">
-            Stored locally in plain text until Electron safeStorage lands — treat this machine as
-            trusted.
-          </span>
-        </label>
+          <label className="block">
+            <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+              <KeyRound size={13} />
+              Private key (PEM)
+            </span>
+            <textarea
+              value={pem}
+              onChange={(e) => setPem(e.target.value)}
+              placeholder={'-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'}
+              disabled={busy}
+              rows={7}
+              className="w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 py-2 font-mono text-xs leading-5 text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
+            />
+            <span className="mt-1.5 block text-[11px] leading-4 text-zinc-600">
+              Stored locally in plain text until Electron safeStorage lands. Treat this
+              machine as trusted.
+            </span>
+          </label>
 
-        {error && (
-          <div className="text-xs text-red-400 bg-red-950/40 border border-red-900/60 rounded px-3 py-2 whitespace-pre-wrap">
-            {error}
-          </div>
-        )}
+          {error && (
+            <div className="whitespace-pre-wrap rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 py-2 text-xs text-rose-200">
+              {error}
+            </div>
+          )}
+        </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex justify-end gap-2 border-t border-white/[0.07] bg-black/10 px-5 py-3">
           {onCancel && (
             <button
               type="button"
               onClick={onCancel}
               disabled={busy}
-              className="px-4 py-2 text-sm rounded bg-gray-800 hover:bg-gray-700 text-gray-200 disabled:opacity-50"
+              className="h-9 rounded-lg border border-white/[0.08] bg-white/[0.045] px-4 text-sm text-zinc-300 transition-colors hover:border-sky-200/18 hover:bg-sky-200/[0.07] hover:text-sky-100 disabled:opacity-50"
             >
               Cancel
             </button>
@@ -227,9 +249,10 @@ export function ConnectSetupScreen({
           <button
             type="submit"
             disabled={busy || !endpoint.trim() || !pem.trim()}
-            className="px-4 py-2 text-sm rounded bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-sky-200 px-4 text-sm font-medium text-slate-950 shadow-[0_8px_24px_rgba(125,211,252,0.16)] transition-colors hover:bg-sky-100 disabled:opacity-40"
           >
-            {busy ? 'Verifying…' : 'Connect'}
+            {busy && <Loader2 size={14} className="animate-spin" />}
+            {busy ? 'Verifying' : 'Connect'}
           </button>
         </div>
       </form>

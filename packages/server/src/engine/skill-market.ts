@@ -37,37 +37,13 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { loadSkill, loadSkillsFromDir } from '@berry-agent/core';
-import type { InstalledSkill } from '@berry-agent/claw-contracts';
+import type { InstalledSkill, SkillMarketItem } from '@berry-agent/claw-contracts';
 
 const execFileP = promisify(execFile);
 
 // ===== Public types =====
 
-/** A market listing before install — consumed by the UI. */
-export interface SkillMarketItem {
-  /** Source-specific slug used as the `install` key. */
-  slug: string;
-  /** Display name (clawhub displayName, or slug as fallback). */
-  name: string;
-  /** Short description (clawhub summary). */
-  description?: string;
-  /** Tags, if the source surfaces them. */
-  tags?: string[];
-  /** Source that owns this entry (echoed back for the UI). */
-  source: SkillSourceId;
-  /** Currently-active installs reported by ClawHub (popularity proxy). */
-  installs?: number;
-  /** Lifetime downloads reported by ClawHub. */
-  downloads?: number;
-  /** Star count reported by ClawHub. */
-  stars?: number;
-  /** Latest version tag (e.g. `1.0.0`). */
-  version?: string;
-  /** Last-updated epoch millis reported by the registry. */
-  updatedAt?: number;
-}
-
-export type SkillSourceId = 'clawhub';
+export type SkillSourceId = SkillMarketItem['source'];
 
 /** One adapter per marketplace. */
 export interface SkillSource {
@@ -437,43 +413,6 @@ export function listInstalledSkillsSync(globalSkillsDir: string): InstalledSkill
     out.push(skillWithOriginSync(header.name ?? e, header.description, child));
   }
   return out;
-}
-
-/**
- * Synchronously enumerate installed skill names. Thin convenience wrapper
- * over {@link listInstalledSkillsSync} kept for the agent-init call site
- * that only needs names to build the disabledSkills blacklist.
- *
- * Scan is one level deep — we `readdirSync(dir)` and for each child look
- * for a direct `child/SKILL.md`. Subdirs without a SKILL.md at that level
- * (e.g. `drafts/` which holds `drafts/<name>/SKILL.md`) are silently
- * skipped. This is the mechanism that makes the per-agent `skills/drafts/`
- * convention invisible to the agent until a draft is promoted up one
- * level — no special-casing required.
- */
-export function listInstalledSkillNamesSync(globalSkillsDir: string): string[] {
-  if (!existsSync(globalSkillsDir)) return [];
-  let entries: string[];
-  try {
-    entries = readdirSync(globalSkillsDir);
-  } catch {
-    return [];
-  }
-  const names: string[] = [];
-  for (const e of entries) {
-    const child = join(globalSkillsDir, e);
-    let isDir = false;
-    try {
-      isDir = statSync(child).isDirectory();
-    } catch {
-      continue;
-    }
-    if (!isDir) continue;
-    const header = readSkillHeaderSync(child);
-    if (!header) continue;
-    names.push(header.name ?? e);
-  }
-  return names;
 }
 
 // ===== Internal helpers =====

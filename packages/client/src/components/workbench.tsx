@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { cn } from '../utils/cn';
 
 export function WorkbenchPage({
   title,
@@ -15,16 +16,23 @@ export function WorkbenchPage({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#111214] text-zinc-200">
-      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-white/[0.07] bg-[#101113]/95 px-5 py-4 backdrop-blur">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent text-zinc-200">
+      <header className="flex min-h-[72px] items-center justify-between gap-4 border-b border-white/[0.04] px-8 py-5 flex-shrink-0 relative z-10 bg-black/20 backdrop-blur-xl">
         <div className="min-w-0">
-          {eyebrow && <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">{eyebrow}</div>}
-          <h1 className="truncate text-base font-semibold text-zinc-50">{title}</h1>
-          {description && <p className="mt-1 max-w-3xl truncate text-sm text-zinc-500">{description}</p>}
+          {eyebrow && <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 mb-1">{eyebrow}</div>}
+          <h1 className="truncate text-lg font-semibold tracking-normal text-zinc-100">{title}</h1>
+          {description && <p className="mt-1.5 max-w-3xl truncate text-[13px] leading-relaxed text-zinc-400">{description}</p>}
         </div>
-        {actions && <div className="flex flex-shrink-0 items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-shrink-0 items-center gap-3">{actions}</div>}
       </header>
-      {children}
+      {/*
+        This is the critical fix. The previous overflow-hidden or lack of relative positioning
+        on the container caused backgrounds to collapse. We make sure this takes up the rest
+        of the height and scrolls properly.
+      */}
+      <div className="flex-1 min-h-0 relative z-0 overflow-hidden">
+        {children}
+      </div>
     </div>
   );
 }
@@ -42,13 +50,13 @@ export function SplitWorkbench({
 }) {
   return (
     <div className="grid h-[calc(100vh-64px)] min-h-0 grid-cols-[320px_minmax(0,1fr)] max-lg:grid-cols-1">
-      <aside className={`min-h-0 overflow-y-auto border-r border-white/[0.07] bg-[#0d0e10] ${leftClassName}`}>
+      <aside className={`min-h-0 overflow-y-auto border-r border-white/[0.07] bg-[#181b1f] ${leftClassName}`}>
         {left}
       </aside>
       <section className="min-h-0 overflow-y-auto">
         <div className={right ? 'grid min-h-full grid-cols-[minmax(0,1fr)_300px] max-2xl:grid-cols-1' : ''}>
           <div className="min-w-0">{children}</div>
-          {right && <aside className="border-l border-white/[0.07] bg-[#0a0b0c] max-2xl:hidden">{right}</aside>}
+          {right && <aside className="border-l border-white/[0.07] bg-[#15171a] max-2xl:hidden">{right}</aside>}
         </div>
       </section>
     </div>
@@ -71,22 +79,22 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-      <section className={`rounded-2xl border border-white/[0.08] bg-white/[0.035] ${className}`}>
+      <section className={cn("rounded-2xl border border-white/[0.04] bg-[#1a1c20]/50 shadow-sm backdrop-blur-md", className)}>
       {(title || action) && (
-        <div className="flex items-start justify-between gap-3 border-b border-white/[0.07] px-4 py-3">
+        <div className="flex items-start justify-between gap-3 border-b border-white/[0.04] px-5 py-4">
           <div className="min-w-0">
             {title && (
-              <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
-                {icon && <span className="text-zinc-500">{icon}</span>}
-                <span className="truncate">{title}</span>
+              <div className="flex items-center gap-2.5 text-[14px] font-semibold text-zinc-200">
+                {icon && <span className="text-[var(--theme-primary)]">{icon}</span>}
+                <span className="truncate tracking-wide">{title}</span>
               </div>
             )}
-            {subtitle && <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>}
+            {subtitle && <p className="mt-1.5 text-[12px] leading-relaxed text-zinc-500">{subtitle}</p>}
           </div>
           {action && <div className="flex-shrink-0">{action}</div>}
         </div>
       )}
-      <div className="p-4">{children}</div>
+      <div className="p-5">{children}</div>
     </section>
   );
 }
@@ -114,7 +122,7 @@ export function EmptyState({
 
 export function StatTile({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2">
+    <div className="rounded-xl border border-white/[0.07] bg-black/10 px-3 py-2">
       <div className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
       <div className="mt-1 truncate text-sm font-medium text-zinc-100">{value}</div>
       {hint && <div className="mt-0.5 truncate text-[11px] text-zinc-600">{hint}</div>}
@@ -133,7 +141,7 @@ export function Pill({
 }) {
   const cls =
     tone === 'good'
-      ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300'
+      ? 'border-teal-300/25 bg-teal-300/10 text-teal-200'
       : tone === 'warn'
         ? 'border-amber-400/20 bg-amber-400/10 text-amber-300'
         : tone === 'bad'
@@ -157,7 +165,7 @@ export function StatusDot({
 }) {
   const cls =
     ok === true || status === 'idle' || status === 'connected'
-      ? 'bg-emerald-400'
+      ? 'bg-teal-300'
       : ok === false || status === 'error' || status === 'failed'
         ? 'bg-red-400'
         : status === 'sleeping' || status === 'disabled'
@@ -184,7 +192,7 @@ export function PrimaryButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-100 px-3 text-xs font-medium text-zinc-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-sky-200 px-3 text-xs font-medium text-slate-950 shadow-[0_8px_24px_rgba(125,211,252,0.16)] transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
@@ -212,8 +220,8 @@ export function SecondaryButton({
       title={title}
       className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         tone === 'bad'
-          ? 'border-red-400/20 bg-red-400/10 text-red-300 hover:bg-red-400/15'
-          : 'border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-zinc-100'
+          ? 'border-rose-300/25 bg-rose-300/10 text-rose-200 hover:bg-rose-300/15'
+          : 'border-white/[0.08] bg-white/[0.045] text-zinc-300 hover:border-sky-200/18 hover:bg-sky-200/[0.07] hover:text-sky-100'
       }`}
     >
       {children}
@@ -236,10 +244,10 @@ export function IconButton({
 }) {
   const toneClass =
     tone === 'bad'
-      ? 'text-zinc-500 hover:bg-red-400/10 hover:text-red-300'
+      ? 'text-zinc-500 hover:bg-rose-300/10 hover:text-rose-200'
       : tone === 'good'
-        ? 'text-zinc-500 hover:bg-emerald-400/10 hover:text-emerald-300'
-        : 'text-zinc-500 hover:bg-white/[0.07] hover:text-zinc-100';
+        ? 'text-zinc-500 hover:bg-teal-300/10 hover:text-teal-200'
+        : 'text-zinc-500 hover:bg-sky-200/[0.07] hover:text-sky-100';
   return (
     <button
       type="button"
@@ -257,7 +265,7 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`h-9 rounded-md border border-white/[0.08] bg-black/20 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
+      className={`h-9 rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-sky-300/45 focus:bg-[#262c33] disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
     />
   );
 }
@@ -266,7 +274,7 @@ export function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>
   return (
     <select
       {...props}
-      className={`h-9 rounded-md border border-white/[0.08] bg-[#111315] px-3 text-sm text-zinc-100 outline-none focus:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
+      className={`h-9 rounded-lg border border-white/[0.08] bg-[#24282e] px-3 text-sm text-zinc-100 outline-none focus:border-sky-300/45 disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
     />
   );
 }
@@ -275,7 +283,7 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
   return (
     <textarea
       {...props}
-      className={`rounded-md border border-white/[0.08] bg-black/20 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-400/40 disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
+      className={`rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-sky-300/45 focus:bg-[#262c33] disabled:cursor-not-allowed disabled:opacity-50 ${props.className ?? ''}`}
     />
   );
 }

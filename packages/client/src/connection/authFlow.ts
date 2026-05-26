@@ -15,6 +15,7 @@
 import type { Instance } from './types';
 import { signChallenge } from './crypto';
 import { clearToken, getToken, setToken, type CachedToken } from './tokenCache';
+import type { AuthChallenge, AuthVerifyResponse } from '@berry-agent/claw-contracts';
 
 export class AuthFlowError extends Error {
   constructor(
@@ -24,17 +25,6 @@ export class AuthFlowError extends Error {
     super(message);
     this.name = 'AuthFlowError';
   }
-}
-
-interface ChallengeResponse {
-  nonce: string;
-  serverId?: string;
-  expiresAt: number;
-}
-
-interface VerifyResponse {
-  sessionToken: string;
-  expiresAt: number;
 }
 
 // Per-instance mutex so N parallel `ensureToken` calls collapse to 1 network
@@ -67,7 +57,7 @@ export async function refreshToken(instance: Instance): Promise<string> {
 }
 
 async function runChallenge(instance: Instance): Promise<CachedToken> {
-  const challenge = await postJson<ChallengeResponse>(
+  const challenge = await postJson<AuthChallenge>(
     `${instance.apiBase}/api/auth/challenge`,
     {},
   );
@@ -77,7 +67,7 @@ async function runChallenge(instance: Instance): Promise<CachedToken> {
 
   const signature = await signChallenge(instance.privateKeyPem, challenge.nonce);
 
-  const verified = await postJson<VerifyResponse>(`${instance.apiBase}/api/auth/verify`, {
+  const verified = await postJson<AuthVerifyResponse>(`${instance.apiBase}/api/auth/verify`, {
     nonce: challenge.nonce,
     signature,
   });

@@ -1,6 +1,6 @@
 /**
  * Berry-Claw System Prompt
  *
- * No default built-in prompt blocks — agents should use a custom prompt
- * defined in their config, or rely on workspace AGENTS.md / project context.
+ * No default built-in prompt blocks — agents rely on SDK workspace
+ * instructions / project knowledge plus any selected prompt pack.
  */

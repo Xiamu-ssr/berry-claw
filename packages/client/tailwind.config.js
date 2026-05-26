@@ -9,6 +9,11 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-ui)'],
+        serif: ['var(--font-reading)'],
+        mono: ['var(--font-mono)'],
+      },
       colors: {
         berry: {
           50: '#eef2ff',

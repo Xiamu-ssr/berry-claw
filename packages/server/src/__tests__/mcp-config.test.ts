@@ -15,13 +15,9 @@ import {
   loadMCPLayer,
   loadMergedMCPConfig,
   mergeMCPConfigs,
-  ensureDefaultAgentMCP,
   type MCPServerConfig,
 } from '../engine/mcp-config.js';
-import {
-  MCP_CONFIG_FILENAME,
-  DEFAULT_AGENT_MCP_TEMPLATE,
-} from '../engine/mcp-constants.js';
+import { MCP_CONFIG_FILENAME } from '@berry-agent/mcp';
 
 let root: string;
 
@@ -179,31 +175,5 @@ describe('mergeMCPConfigs — pre-resolved inputs round-trip', () => {
     expect(merged.foo.layer).toBe('agent');
     if (merged.foo.transport.type !== 'stdio') throw new Error('expected stdio');
     expect(merged.foo.transport.args).toEqual(['-n']);
-  });
-});
-
-describe('ensureDefaultAgentMCP', () => {
-  it('writes the default template on first call', () => {
-    const path = join(root, MCP_CONFIG_FILENAME);
-    ensureDefaultAgentMCP(path);
-    const loaded = loadMCPLayer(path, 'agent');
-    expect(loaded.playwright).toBeDefined();
-    if (loaded.playwright.transport.type !== 'stdio') throw new Error('expected stdio');
-    expect(loaded.playwright.transport.command).toBe(
-      DEFAULT_AGENT_MCP_TEMPLATE.mcpServers.playwright.command,
-    );
-  });
-
-  it('is idempotent — does not overwrite existing config', () => {
-    const path = join(root, MCP_CONFIG_FILENAME);
-    writeFileSync(
-      path,
-      JSON.stringify({ mcpServers: { custom: { command: 'custom-bin' } } }),
-      'utf-8',
-    );
-    ensureDefaultAgentMCP(path);
-    const loaded = loadMCPLayer(path, 'agent');
-    expect(loaded.custom).toBeDefined();
-    expect(loaded.playwright).toBeUndefined();
   });
 });

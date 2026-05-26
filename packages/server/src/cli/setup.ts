@@ -3,7 +3,7 @@
  *
  * Responsibilities (product view, not dependency view):
  *   1. Create ~/.berry-claw data directory
- *   2. Seed a default MEMORY.md placeholder
+ *   2. Seed a default product config if missing
  *   3. Offer to install browser runtime if missing
  *   4. Print next steps
  *

@@ -13,15 +13,16 @@
 // Paths come from ConfigManager.*MCPPath() — this module never
 // hardcodes the filename.
 
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
 import {
+  createNodePackageBinResolver,
   loadMCPLayer as sdkLoadMCPLayer,
   loadMergedMCPConfig as sdkLoadMergedMCPConfig,
   mergeMCPConfigs as sdkMergeMCPConfigs,
+  normalizeDefaultMCPServerConfig,
   type MCPServerConfig as SdkMCPServerConfig,
 } from '@berry-agent/mcp';
-import { DEFAULT_AGENT_MCP_TEMPLATE } from './mcp-constants.js';
+
+const packageBinResolver = createNodePackageBinResolver(import.meta.url);
 
 /** Layer identity drives defaults: global → shared=true; others → shared=false. */
 export type MCPLayer = 'global' | 'project' | 'agent';
@@ -80,17 +81,6 @@ export function mergeMCPConfigs(
   return narrowRecord(sdkMergeMCPConfigs(layers));
 }
 
-/**
- * Ensure an agent's workspace has a .mcp.json. If missing, writes a
- * default template that registers playwright-mcp as a per-agent server.
- * Idempotent — existing files are left untouched.
- */
-export function ensureDefaultAgentMCP(mcpPath: string): void {
-  if (existsSync(mcpPath)) return;
-  if (!existsSync(dirname(mcpPath))) mkdirSync(dirname(mcpPath), { recursive: true });
-  writeFileSync(mcpPath, JSON.stringify(DEFAULT_AGENT_MCP_TEMPLATE, null, 2) + '\n', 'utf-8');
-}
-
 // ============================================================
 // Label → union narrowing
 // ============================================================
@@ -106,7 +96,7 @@ function narrowLayer(
 ): Record<string, MCPServerConfig> {
   const out: Record<string, MCPServerConfig> = {};
   for (const [name, entry] of Object.entries(record)) {
-    out[name] = { ...entry, layer: (entry.layer as MCPLayer) ?? expected };
+    out[name] = normalizeBuiltInServer({ ...entry, layer: (entry.layer as MCPLayer) ?? expected });
   }
   return out;
 }
@@ -116,7 +106,13 @@ function narrowRecord(
 ): Record<string, MCPServerConfig> {
   const out: Record<string, MCPServerConfig> = {};
   for (const [name, entry] of Object.entries(record)) {
-    out[name] = { ...entry, layer: entry.layer as MCPLayer };
+    out[name] = normalizeBuiltInServer({ ...entry, layer: entry.layer as MCPLayer });
   }
   return out;
+}
+
+function normalizeBuiltInServer(entry: MCPServerConfig): MCPServerConfig {
+  return normalizeDefaultMCPServerConfig(entry, {
+    resolvePackageBin: packageBinResolver,
+  }) as MCPServerConfig;
 }

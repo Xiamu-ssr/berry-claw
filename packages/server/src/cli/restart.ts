@@ -1,6 +1,7 @@
 /**
- * berry restart — request server restart via API.
- * The server exits gracefully after 500ms; a process manager should restart it.
+ * berry restart — request server runtime reload via API.
+ * A real process exit only happens when the server was launched with
+ * BERRY_CLAW_ALLOW_SELF_EXIT=1 under an external supervisor.
  */
 const DEFAULT_PORT = 3210;
 
@@ -20,7 +21,7 @@ export async function runRestart(args?: string[]): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const data = await res.json() as { message?: string };
+    const data = await res.json() as { message?: string; mode?: string };
     console.log(data.message ?? 'Restart scheduled.');
   } catch (err: unknown) {
     if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {

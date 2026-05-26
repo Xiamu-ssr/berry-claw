@@ -1,76 +1,35 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { AgentEntry } from './config-manager.js';
-import { AgentHome, SystemPromptCacheMode, type SystemPromptInput } from '@berry-agent/core';
-
-export type PromptBlockSource =
-  | 'project_context'
-  | 'env'
-  | 'workspace_agent_md'
-  | 'skills_index';
-
-export interface PromptBlockInfo {
-  id: string;
-  source: PromptBlockSource;
-  title: string;
-  description: string;
-  order: number;
-  active: boolean;
-  scope: 'base' | 'query-time';
-  cache: 'stable' | 'dynamic';
-  editable: boolean;
-  path?: string;
-  text: string;
-}
-
-export function buildEnvContext(workspace: string, projectRoot?: string): string {
-  const lines = [
-    `<env>`,
-    `  # workspace is the agent's private directory (memory, sessions, personal notes)`,
-    `  workspace: ${workspace}`,
-  ];
-  if (projectRoot) {
-    lines.push(`  # project is the codebase root this agent operates on`);
-    lines.push(`  project: ${projectRoot}`);
-    lines.push(`  cwd: ${projectRoot}`);
-  } else {
-    lines.push(`  cwd: ${workspace}`);
-  }
-  lines.push(`</env>`);
-  return lines.join('\n');
-}
-
-export function buildBaseSystemPrompt(entry: AgentEntry, workspace: string): SystemPromptInput {
-  return [
-    { text: buildEnvContext(workspace, entry.project), cache: SystemPromptCacheMode.Stable },
-  ];
-}
+import { projectSharedPaths } from '@berry-agent/core';
+import { buildEnvironmentContext } from '@berry-agent/runtime';
+import type { PromptBlockInfo } from '@berry-agent/claw-contracts';
 
 export async function listPromptBlocks(params: {
   agentId: string;
   entry: AgentEntry;
   workspace: string;
+  workspaceInstructions: { path: string; content: string };
+  projectKnowledge: { project: string | null; files: Array<{ path: string; content: string }> };
   runtimeSkills?: Array<{ name: string; description: string; dir: string }>;
 }): Promise<PromptBlockInfo[]> {
-  const { entry, workspace, runtimeSkills = [] } = params;
+  const { entry, workspace, workspaceInstructions, projectKnowledge, runtimeSkills = [] } = params;
   const blocks: PromptBlockInfo[] = [];
   let order = 0;
 
-  const projectContext = await loadProjectContext(entry.project);
+  const projectContextText = projectKnowledge.files[0]?.content ?? '';
   blocks.push({
     id: 'project_context',
     source: 'project_context',
-    title: 'Project context',
-    description: projectContext
-      ? 'Prepended at query time from the project AGENTS.md file.'
-      : 'No AGENTS.md found in project root. Create one to inject project-level context.',
+    title: 'Project knowledge',
+    description: projectContextText.trim()
+      ? 'Prepended at query time from SDK project knowledge.'
+      : 'No project knowledge yet. Save content here to inject shared project context.',
     order: order++,
-    active: !!projectContext,
+    active: projectContextText.trim().length > 0,
     scope: 'query-time',
     cache: 'stable',
     editable: !!entry.project,
-    path: projectContext?.path ?? (entry.project ? `${entry.project}/AGENTS.md` : undefined),
-    text: projectContext?.text ?? '',
+    path: entry.project ? projectSharedPaths(entry.project).contextPath : undefined,
+    text: projectContextText,
   });
 
   blocks.push({
@@ -83,25 +42,23 @@ export async function listPromptBlocks(params: {
     scope: 'base',
     cache: 'dynamic',
     editable: false,
-    text: buildEnvContext(workspace, entry.project),
+    text: buildEnvironmentContext(workspace, entry.project),
   });
 
-  const workspaceAgentPath = new AgentHome(workspace).agentMdPath;
-  const workspaceAgentText = await readTextOrEmpty(workspaceAgentPath);
   blocks.push({
     id: 'workspace_agent_md',
     source: 'workspace_agent_md',
-    title: 'Workspace AGENTS.md',
-    description: workspaceAgentText.trim()
-      ? 'Appended at query time from the agent workspace AGENTS.md file.'
-      : 'Optional workspace AGENTS.md appended at query time. Save content here to create/activate it.',
+    title: 'Workspace instructions',
+    description: workspaceInstructions.content.trim()
+      ? 'Appended at query time from SDK workspace instructions.'
+      : 'Optional workspace instructions appended at query time. Save content here to activate them.',
     order: order++,
-    active: workspaceAgentText.trim().length > 0,
+    active: workspaceInstructions.content.trim().length > 0,
     scope: 'query-time',
     cache: 'stable',
     editable: true,
-    path: workspaceAgentPath,
-    text: workspaceAgentText,
+    path: workspaceInstructions.path,
+    text: workspaceInstructions.content,
   });
 
   blocks.push(buildSkillsIndexBlock(entry, runtimeSkills, order));
@@ -143,20 +100,4 @@ function buildSkillsIndexBlock(
     editable: false,
     text,
   };
-}
-
-async function loadProjectContext(projectRoot?: string): Promise<{ path: string; text: string } | null> {
-  if (!projectRoot) return null;
-  const path = join(projectRoot, 'AGENTS.md');
-  const text = await readTextOrEmpty(path);
-  if (text.trim()) return { path, text };
-  return null;
-}
-
-async function readTextOrEmpty(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf-8');
-  } catch {
-    return '';
-  }
 }

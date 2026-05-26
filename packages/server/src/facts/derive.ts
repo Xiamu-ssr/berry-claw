@@ -10,6 +10,8 @@
  */
 
 import type { Team } from '@berry-agent/team';
+import { projectSharedPaths } from '@berry-agent/core';
+import type { AgentChatMessage, AgentSessionView } from '@berry-agent/core';
 import type { AgentManager } from '../engine/agent-manager.js';
 import type { AgentFact, TeamFact, SessionFact, SystemFact, MCPServerFact } from '@berry-agent/claw-contracts';
 import { SYSTEM_FACT_ID } from '@berry-agent/claw-contracts';
@@ -30,7 +32,10 @@ export function deriveAgentFact(
 
   const instance = manager.getInstance(agentId);
   const status = manager.getAgentStatus(agentId);
-  const provider = instance?.agent.currentProvider;
+  const provider = instance?.runtime.currentProvider;
+  const workspace = entry.workspace ?? manager.config.agentWorkspace(agentId);
+  const home = manager.config.agentHomeFor(workspace).toSnapshot();
+  const projectPaths = entry.project ? projectSharedPaths(entry.project) : undefined;
 
   // Per-agent MCP snapshot. We read the full MCPManager status and pluck
   // the slot for this agent — keeping the deriver the only place that
@@ -54,8 +59,10 @@ export function deriveAgentFact(
     name: entry.name,
     model: entry.model,
     provider: provider?.type ?? 'unknown',
-    workspace: entry.workspace ?? '',
+    workspace,
+    home,
     project: entry.project,
+    projectPaths,
     status: (status?.status as AgentFact['status']) ?? 'idle',
     statusDetail: status?.detail,
     isActive: manager.activeAgent === agentId,
@@ -97,8 +104,8 @@ export function deriveSystemFact(manager: AgentManager): SystemFact {
 
 /**
  * Build a TeamFact from a live Team instance. We accept the message count
- * as an optional override so callers can pass a cached count (reading the
- * full messages.jsonl every emission would be wasteful).
+ * as an optional override so callers can pass a cached count instead of
+ * reading the SDK team message store on every emission.
  */
 export async function deriveTeamFact(
   team: Team,
@@ -112,6 +119,7 @@ export async function deriveTeamFact(
     id: state.leaderId,
     name: state.name,
     project: state.project,
+    projectPaths: projectSharedPaths(state.project),
     leaderId: state.leaderId,
     teammates: state.teammates.map((t) => ({
       agentId: t.id,
@@ -122,32 +130,42 @@ export async function deriveTeamFact(
   };
 }
 
-/**
- * Build a SessionFact from an Agent + session metadata. Very lightweight:
- * everything needed is already on the session object.
- */
-export function deriveSessionFact(
-  sessionId: string,
-  agentId: string,
-  session: {
-    messages: unknown[];
-    metadata?: {
-      turnCount?: number;
-      tokensUsed?: number;
-      compactionCount?: number;
-      lastActivityAt?: number;
-    };
-    crashRecovered?: boolean;
-  },
-): SessionFact {
+/** Build a SessionFact from the SDK-owned session view. */
+export function deriveSessionFact(view: AgentSessionView): SessionFact {
+  const usage = sumMessageTokens(view.messages);
+  const compactionCount = view.messages.reduce((count, message) => {
+    const markers = message.timeline?.filter((item) =>
+      item.type === 'event' && item.event.kind === 'compaction',
+    ).length ?? 0;
+    return count + markers;
+  }, 0);
+
   return {
-    id: sessionId,
-    agentId,
-    messageCount: session.messages.length,
-    turnCount: session.metadata?.turnCount ?? 0,
-    tokensUsed: session.metadata?.tokensUsed ?? 0,
-    compactionCount: session.metadata?.compactionCount ?? 0,
-    lastActivityAt: session.metadata?.lastActivityAt,
-    crashRecovered: session.crashRecovered,
+    id: view.id,
+    agentId: view.agentId ?? '',
+    title: view.title,
+    status: view.status,
+    messageCount: view.messages.length,
+    turnCount: view.messages.filter((message) => message.role === 'user').length,
+    tokensUsed: usage.inputTokens + usage.outputTokens,
+    compactionCount,
+    lastActivityAt: view.lastActiveAt,
+    crashRecovered: view.status === 'interrupted' ? true : undefined,
   };
+}
+
+function sumMessageTokens(messages: AgentChatMessage[]): { inputTokens: number; outputTokens: number } {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  for (const message of messages) {
+    if (message.usage) {
+      inputTokens += message.usage.inputTokens;
+      outputTokens += message.usage.outputTokens;
+    }
+    for (const inference of message.inferences ?? []) {
+      inputTokens += inference.inputTokens;
+      outputTokens += inference.outputTokens;
+    }
+  }
+  return { inputTokens, outputTokens };
 }

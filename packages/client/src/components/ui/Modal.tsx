@@ -49,11 +49,11 @@ export function Modal({ open, onClose, children, size = 'md', className = '' }: 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className={`bg-white dark:bg-gray-900 rounded-lg shadow-xl ${SIZE_CLASS[size]} w-full mx-4 border border-gray-200 dark:border-gray-700 ${className}`}
+        className={`w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-white/[0.08] dark:bg-[#20242a] dark:shadow-[0_24px_80px_rgba(0,0,0,0.32)] ${SIZE_CLASS[size]} ${className}`}
         onClick={(ev) => ev.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -67,17 +67,17 @@ export function Modal({ open, onClose, children, size = 'md', className = '' }: 
 /** Convenience sub-components so every dialog has the same vertical rhythm. */
 export function ModalHeader({ children }: { children: ReactNode }) {
   return (
-    <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">{children}</div>
+    <div className="border-b border-gray-200 bg-gray-50/70 px-5 py-4 dark:border-white/[0.07] dark:bg-[#1d2126]/85">{children}</div>
   );
 }
 
 export function ModalBody({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`px-5 py-4 space-y-3 text-sm ${className}`}>{children}</div>;
+  return <div className={`space-y-3 px-5 py-4 text-sm ${className}`}>{children}</div>;
 }
 
 export function ModalFooter({ children }: { children: ReactNode }) {
   return (
-    <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+    <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50/70 px-5 py-3 dark:border-white/[0.07] dark:bg-black/10">
       {children}
     </div>
   );

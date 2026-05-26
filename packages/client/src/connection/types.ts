@@ -7,5 +7,5 @@
  * `@berry-agent/claw-contracts` directly so there is exactly one seam to widen when
  * we start layering client-only fields on top (e.g. UI preferences).
  */
-export { zInstance, zInstanceList } from '@berry-agent/claw-contracts';
-export type { Instance, InstanceList } from '@berry-agent/claw-contracts';
+export { zInstance, zInstanceList } from '@berry-agent/claw-contracts/instance';
+export type { Instance, InstanceList } from '@berry-agent/claw-contracts/instance';

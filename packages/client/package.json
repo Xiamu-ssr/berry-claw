@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-client.mjs",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b --force && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --maxWorkers=2"
   },
   "dependencies": {
     "@berry-agent/avatar": "file:../../../berry-agent-sdk/packages/avatar",
@@ -15,12 +15,19 @@
     "@noble/ed25519": "^2.1.0",
     "@noble/hashes": "^1.5.0",
     "@xyflow/react": "^12.10.2",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.39.0",
+    "katex": "^0.16.47",
     "lucide-react": "^0.511.0",
+    "mermaid": "^11.15.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^15.6.1",
-    "remark-gfm": "^4.0.1"
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
