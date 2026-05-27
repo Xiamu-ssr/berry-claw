@@ -31,7 +31,7 @@ import { MCPManager } from '@berry-agent/mcp';
 import type { MCPServerConfig, MCPServerStatusView } from '@berry-agent/mcp';
 import { SkillMarketService } from './skill-market.js';
 import { TeamHost } from './team-host.js';
-import { AgentRuntimeFactory, type BuiltAgentRuntime } from './agent-runtime-factory.js';
+import { AgentRuntimeFactory } from './agent-runtime-factory.js';
 import { AgentChatHost } from './agent-chat-host.js';
 import { AgentContextHost } from './agent-context-host.js';
 import { AgentFileHost, type AgentBrowseRoot, type AgentFileContent, type AgentFileList } from './agent-file-host.js';
@@ -40,9 +40,9 @@ import { AgentMcpHost } from './agent-mcp-host.js';
 import { AgentReloadHost } from './agent-reload-host.js';
 import { AgentSessionHost } from './agent-session-host.js';
 import { createDefaultPricingOverrides } from './pricing-overrides.js';
-import { ManagedRuntimeRegistry, type ManagedRuntimeMount } from '@berry-agent/runtime';
+import { Worker, type WorkerAgentMount } from '@berry-agent/worker';
 
-export type AgentInstance = ManagedRuntimeMount<AgentEntry, BuiltAgentRuntime>;
+export type AgentInstance = WorkerAgentMount<AgentEntry>;
 
 export interface AgentManagerOptions {
   appDir?: string;
@@ -53,7 +53,11 @@ export class AgentManager {
   readonly config: ConfigManager;
   readonly observer: Observer;
   readonly credentials: CredentialStore;
-  private agents: ManagedRuntimeRegistry<AgentEntry, BuiltAgentRuntime>;
+  /** Worker daemon that owns live runtimes. Replaces the previous
+   *  in-line ManagedRuntimeRegistry — the worker handles mount lifecycle
+   *  and is ready to participate in cross-process lease/failover when a
+   *  RuntimeOrchestrator is supplied (M2). */
+  private worker!: Worker<AgentEntry>;
   /** Single outbound stream of truth; server WS relays verbatim. */
   readonly factBus = new FactBus();
   private readonly runtimeFactory: AgentRuntimeFactory;
@@ -112,11 +116,6 @@ export class AgentManager {
     const pricingOverrides = createDefaultPricingOverrides();
     this.pricingOverrides = pricingOverrides;
     this.observer = createObserver({ dbPath: join(this.config.appDir, 'observe.db'), pricingOverrides });
-    this.agents = new ManagedRuntimeRegistry<AgentEntry, BuiltAgentRuntime>({
-      onDestroyError: (agentId, err) => {
-        console.warn(`[agent-manager] destroying agent ${agentId} threw:`, err);
-      },
-    });
     this.runtimeFactory = new AgentRuntimeFactory({
       config: this.config,
       credentials: this.credentials,
@@ -130,6 +129,14 @@ export class AgentManager {
       port: () => this.port,
       startTime: this.startTime,
     });
+    this.worker = new Worker<AgentEntry>({
+      env: this.runtimeFactory.env,
+      registryHooks: {
+        onDestroyError: (agentId, err) => {
+          console.warn(`[agent-manager] destroying agent ${agentId} threw:`, err);
+        },
+      },
+    });
     this.chatHost = new AgentChatHost({
       getActiveAgentId: () => this.activeAgentId,
       getRuntime: (agentId) => this.getRuntime(agentId),
@@ -140,7 +147,7 @@ export class AgentManager {
       config: this.config,
       factBus: this.factBus,
       getRuntime: (agentId) => this.getRuntime(agentId),
-      getLiveRuntime: (agentId) => this.agents.getRuntime(agentId),
+      getLiveRuntime: (agentId) => this.worker.get(agentId)?.runtime,
       dropAgent: (agentId) => this.dropAgent(agentId),
     });
     this.contextHost = new AgentContextHost({
@@ -150,7 +157,7 @@ export class AgentManager {
     });
     this.fileHost = new AgentFileHost(this.config, () => this.activeAgentId);
     this.lifecycleHost = new AgentLifecycleHost({
-      liveAgentIds: () => [...this.agents.keys()],
+      liveAgentIds: () => this.worker.ids(),
       activeAgentId: () => this.activeAgentId,
       dropAgent: (agentId) => this.dropAgent(agentId),
       getRuntime: (agentId) => this.getRuntime(agentId),
@@ -160,13 +167,13 @@ export class AgentManager {
     this.agentMcpHost = new AgentMcpHost({
       config: this.config,
       mcpManager: this.mcpManager,
-      getInstance: (agentId) => this.agents.get(agentId),
-      liveAgentIds: () => [...this.agents.keys()],
+      getInstance: (agentId) => this.worker.get(agentId),
+      liveAgentIds: () => this.worker.ids(),
       emitAgentFact: (agentId) => this.emitAgentFact(agentId),
     });
     this.reloadHost = new AgentReloadHost({
       config: this.config,
-      getInstance: (agentId) => this.agents.get(agentId),
+      getInstance: (agentId) => this.worker.get(agentId),
       dropAgent: (agentId) => this.dropAgent(agentId),
       getRuntime: (agentId) => this.getRuntime(agentId),
       emitAgentFact: (agentId) => this.emitAgentFact(agentId),
@@ -219,8 +226,12 @@ export class AgentManager {
     const entry = this.config.getAgent(id);
     if (!entry) throw new Error(`Agent "${id}" not found in config`);
 
-    const built = this.agents.create(id, entry, (runtimeId, runtimeEntry) =>
-      this.runtimeFactory.create(runtimeId, runtimeEntry));
+    const mount = this.worker.runAgentSync(
+      id,
+      entry,
+      this.runtimeFactory.specFor(id, entry),
+      this.runtimeFactory.hooksFor(id),
+    );
 
     this.agentMcpHost.startAgent(id);
 
@@ -233,20 +244,20 @@ export class AgentManager {
     // Rehydrate asynchronously; callers that need the result await
     // waitForTeamRehydrate(agentId). In practice this is small file IO plus
     // teammate runtime re-instantiation.
-    if (built.projectRoot) {
-      this.teamHost.rehydrateOnAgentInit(id, built.runtime, built.projectRoot);
+    if (mount.projectRoot) {
+      this.teamHost.rehydrateOnAgentInit(id, mount.runtime, mount.projectRoot);
     }
 
     // First-time instantiation flips `instantiated: false → true` on the
     // agent's fact. Emit so UIs can drop the "config-only" badge.
     this.emitAgentFact(id);
 
-    return built.runtime;
+    return mount.runtime;
   }
 
   /** Remove an agent from the cache and release its per-agent MCP servers. */
   private async dropAgent(agentId: string): Promise<void> {
-    await this.agents.drop(agentId);
+    await this.worker.stopAgent(agentId);
     await this.agentMcpHost.releaseAgent(agentId);
   }
 
@@ -259,7 +270,7 @@ export class AgentManager {
 
   getRuntime(agentId?: string): ManagedAgentRuntime {
     const id = agentId ?? this.activeAgentId;
-    const instance = this.agents.get(id);
+    const instance = this.worker.get(id);
     if (instance) return instance.runtime;
     return this.initRuntime(id);
   }
@@ -287,7 +298,7 @@ export class AgentManager {
       return;
     }
 
-    await Promise.all([...this.agents.keys()].map((id) => this.agentMcpHost.syncAgent(id)));
+    await Promise.all(this.worker.ids().map((id) => this.agentMcpHost.syncAgent(id)));
   }
 
   async setSharedMcpEnabled(
@@ -338,7 +349,7 @@ export class AgentManager {
 
   /** Has this agent been instantiated in-memory? (vs. lazy, still just an entry in config). */
   isAgentLive(agentId: string): boolean {
-    return this.agents.has(agentId);
+    return this.worker.has(agentId);
   }
 
   async disbandTeam(agentId: string): Promise<void> {
@@ -425,7 +436,7 @@ export class AgentManager {
 
   /** Live AgentInstance or undefined — used by fact derivers. */
   getInstance(agentId: string): AgentInstance | undefined {
-    return this.agents.get(agentId);
+    return this.worker.get(agentId);
   }
 
   /** Create a new empty SDK session and return the SDK-owned UI view. */
@@ -517,7 +528,7 @@ export class AgentManager {
   /** Force-abort the current turn for an agent. The SDK persists query_end(error). */
   pauseAgent(agentId?: string, reason = 'paused by user'): { agentId: string; paused: boolean; status: string; detail?: string } {
     const id = agentId ?? this.activeAgentId;
-    const inst = this.agents.get(id);
+    const inst = this.worker.get(id);
     if (!inst) {
       return { agentId: id, paused: false, status: 'idle' };
     }
@@ -551,7 +562,7 @@ export class AgentManager {
     const id = agentId ?? this.activeAgentId;
     const entry = this.config.getAgent(id);
     if (!entry) throw new Error(`Agent "${id}" not found`);
-    const instance = this.agents.get(id);
+    const instance = this.worker.get(id);
     return {
       id,
       entry,
@@ -571,7 +582,7 @@ export class AgentManager {
 
   /** Status snapshot for an agent, or null if the instance isn't created yet. */
   getAgentStatus(agentId: string): { status: string; detail?: string } | null {
-    const inst = this.agents.get(agentId);
+    const inst = this.worker.get(agentId);
     if (!inst) return null;
     const status = inst.runtime.getStatus();
     return { status: status.status, detail: status.detail };
@@ -593,7 +604,7 @@ export class AgentManager {
    * after failover, which is exactly what the UI should surface.
    */
   currentModel(): { model: string; providerName: string; type: string } | null {
-    const instance = this.agents.get(this.activeAgentId);
+    const instance = this.worker.get(this.activeAgentId);
     if (!instance) return null;
     const config = instance.runtime.currentProvider;
     const entry = this.config.getAgent(this.activeAgentId);
@@ -626,7 +637,7 @@ export class AgentManager {
   }
 
   async close(): Promise<void> {
-    for (const id of [...this.agents.keys()]) {
+    for (const id of this.worker.ids()) {
       await this.dropAgent(id);
     }
     await this.agentMcpHost.close();

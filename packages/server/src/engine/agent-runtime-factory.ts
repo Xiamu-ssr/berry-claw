@@ -5,7 +5,9 @@ import { createSandboxExecutionEnvironmentProvider } from '@berry-agent/tools-co
 import {
   buildAgentRuntime,
   type BuiltWorkerRuntime,
+  type WorkerAgentSpec,
   type WorkerEnvironment,
+  type WorkerRuntimeHooks,
 } from '@berry-agent/worker';
 import type { ConfigManager, AgentEntry } from './config-manager.js';
 import { createBerryTools } from './berry-tools.js';
@@ -31,19 +33,18 @@ export interface AgentRuntimeFactoryOptions {
 }
 
 /**
- * Adapts a Claw AgentEntry to the @berry-agent/worker runtime builder.
+ * Adapts a Claw AgentEntry to the @berry-agent/worker spec/env contract.
  *
- * Claw still chooses product roots, host introspection tools, ConfigManager
- * cascades, and UI-facing config values. The pure assembly of
- * provider/sandbox/safety/observe/skills happens in @berry-agent/worker,
- * which itself delegates to @berry-agent/runtime's createManagedRuntime.
- *
- * Reason for the indirection: a worker daemon will eventually own the runtime
- * for multiple products. AgentRuntimeFactory is the Claw-specific shape
- * mapper; buildAgentRuntime is the product-agnostic worker primitive.
+ * Responsibility split:
+ *  - `env`: per-worker shared infrastructure (constructed once)
+ *  - `specFor(id, entry)`: per-agent spec mapping (called by Worker.runAgent)
+ *  - `hooksFor(id)`: per-agent runtime hooks (status-change → product facts)
+ *  - `create(id, entry)`: convenience for code that needs the runtime directly
+ *    (without going through Worker). Always equivalent to
+ *    `buildAgentRuntime(specFor(id, entry), env, hooksFor(id))`.
  */
 export class AgentRuntimeFactory {
-  private readonly env: WorkerEnvironment;
+  readonly env: WorkerEnvironment;
 
   constructor(private readonly opts: AgentRuntimeFactoryOptions) {
     this.env = {
@@ -60,53 +61,57 @@ export class AgentRuntimeFactory {
     };
   }
 
-  create(agentId: string, entry: AgentEntry): BuiltAgentRuntime {
+  specFor(agentId: string, entry: AgentEntry): WorkerAgentSpec {
     const workspace = entry.workspace ?? this.opts.config.agentWorkspace(agentId);
     const home = this.opts.config.agentHomeFor(workspace);
     const appConfig = this.opts.config.get();
 
-    return buildAgentRuntime(
-      {
-        agentId,
-        workspace,
-        home,
-        projectRoot: entry.project,
-        model: entry.model,
-        reasoningEffort: entry.reasoningEffort,
-        promptPack: entry.promptPack,
-        toolDenylist: entry.disabledTools ?? [],
-        localWorkspace: { allowedTools: entry.tools },
-        hostHandDisplayName: 'Berry Claw system',
-        hostTools: createBerryTools({
-          getActiveAgentId: this.opts.getActiveAgentId,
-          getAgentStatus: this.opts.getAgentStatus,
-          currentModel: this.opts.currentModel,
-          listAgents: () => this.opts.config.listAgents(),
-          getTiers: () => this.opts.config.getTiers(),
-          listProviderInstances: () => this.opts.config.listProviderInstances(),
-          listModels: () => this.opts.config.listModels(),
-          getAgent: (id) => this.opts.config.getAgent(id),
-          port: this.opts.port(),
-          startTime: this.opts.startTime,
-        }),
-        skills: {
-          extraDirs: entry.skillDirs,
-          globalDir: this.opts.config.globalSkillsDir(),
-          builtinDir: this.opts.config.builtinSkillsDir(),
-          enabled: entry.enabledSkills,
-          disabled: entry.disabledSkills,
-        },
-        safety: {
-          agentLevel: entry.safetyLevel,
-          globalLevel: appConfig.safetyLevel,
-          classifier: appConfig.safetyClassifier,
-        },
-        ensureDefaultMcpConfig: true,
+    return {
+      agentId,
+      workspace,
+      home,
+      projectRoot: entry.project,
+      model: entry.model,
+      reasoningEffort: entry.reasoningEffort,
+      promptPack: entry.promptPack,
+      toolDenylist: entry.disabledTools ?? [],
+      localWorkspace: { allowedTools: entry.tools },
+      hostHandDisplayName: 'Berry Claw system',
+      hostTools: createBerryTools({
+        getActiveAgentId: this.opts.getActiveAgentId,
+        getAgentStatus: this.opts.getAgentStatus,
+        currentModel: this.opts.currentModel,
+        listAgents: () => this.opts.config.listAgents(),
+        getTiers: () => this.opts.config.getTiers(),
+        listProviderInstances: () => this.opts.config.listProviderInstances(),
+        listModels: () => this.opts.config.listModels(),
+        getAgent: (id) => this.opts.config.getAgent(id),
+        port: this.opts.port(),
+        startTime: this.opts.startTime,
+      }),
+      skills: {
+        extraDirs: entry.skillDirs,
+        globalDir: this.opts.config.globalSkillsDir(),
+        builtinDir: this.opts.config.builtinSkillsDir(),
+        enabled: entry.enabledSkills,
+        disabled: entry.disabledSkills,
       },
-      this.env,
-      {
-        onStatusChange: (id) => this.opts.onStatusChange(id),
+      safety: {
+        agentLevel: entry.safetyLevel,
+        globalLevel: appConfig.safetyLevel,
+        classifier: appConfig.safetyClassifier,
       },
-    );
+      ensureDefaultMcpConfig: true,
+    };
+  }
+
+  hooksFor(_agentId: string): WorkerRuntimeHooks {
+    return {
+      onStatusChange: (id) => this.opts.onStatusChange(id),
+    };
+  }
+
+  create(agentId: string, entry: AgentEntry): BuiltAgentRuntime {
+    return buildAgentRuntime(this.specFor(agentId, entry), this.env, this.hooksFor(agentId));
   }
 }
