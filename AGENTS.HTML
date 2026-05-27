@@ -54,7 +54,10 @@
   <p class="muted">本文件是 Berry Claw 的产品、架构、开发和发布事实源。README.md 和 AGENTS.md 只引用本文档，避免文档漂移。</p>
 
   <h2>定位</h2>
-  <p><strong>Berry Claw</strong> 是基于 Berry Agent SDK 的产品。它不是 SDK 本体，而是把 SDK 能力包装成可运行的后端实例、Web 前台、桌面客户端和手机客户端。</p>
+  <p><strong>Berry Claw</strong> 是基于 Berry Agent SDK 的<strong>第一个</strong> agent 产品。它不是 SDK 本体,也不是未来 Berry platform 的全部 — 它是 platform 上的一个产品实例,把 SDK + 即将拆出的 worker 能力包装成可运行的后端、Web 前台、桌面客户端和手机客户端。</p>
+  <div class="note" style="margin: 14px 0; padding: 12px; border-left: 3px solid #2563eb; background: var(--panel);">
+    <strong>架构演进中:</strong>Claw server 目前同时承担<strong>产品逻辑</strong>和 <strong>worker daemon</strong> 两件事。Milestone 1 会把 worker 部分抽离成独立包 <code>@berry-agent/worker</code>,Claw 通过 in-process API 调用它。最终 Claw = 产品层(REST/WS/UI/auth/config),worker = 跑 SDK runtime 的 daemon。详细路线见 <code>docs/anthropic-managed-agents-notes.md</code> 的 Product Strategy 段。
+  </div>
   <div class="grid">
     <section class="card"><strong>后台</strong><br><code>@berry-agent/claw-server</code>：host adapter、CLI、REST/WebSocket、实例密钥、产品配置、SDK runtime 挂载。</section>
     <section class="card"><strong>前台</strong><br><code>@berry-agent/claw-client</code>：桌面/Web 产品 UI；渲染 SDK session view、facts、approval、files、browser，不拥有 agent state。</section>
