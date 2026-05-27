@@ -21,7 +21,8 @@
     "concurrently": "^9.0.0"
   },
   "overrides": {
-    "@berry-agent/runtime": "file:../berry-agent-sdk/packages/runtime"
+    "@berry-agent/runtime": "file:../berry-agent-sdk/packages/runtime",
+    "@berry-agent/worker": "file:../berry-agent-sdk/packages/worker"
   },
   "engines": {
     "node": ">=20"

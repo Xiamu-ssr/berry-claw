@@ -33,6 +33,7 @@
     "@berry-agent/safe": "^0.5.0-alpha.1",
     "@berry-agent/team": "^0.5.0-alpha.1",
     "@berry-agent/tools-common": "^0.5.0-alpha.1",
+    "@berry-agent/worker": "file:../../../berry-agent-sdk/packages/worker",
     "@berry-agent/claw-contracts": "^0.5.0-alpha.3",
     "@playwright/mcp": "0.0.73",
     "clawhub": "^0.12.0",
