@@ -83,7 +83,7 @@ export class AgentMcpHost {
   async close(): Promise<void> {
     this.closed = true;
     await Promise.allSettled([...this.pendingStarts]);
-    await this.options.mcpManager.shutdown();
+    await this.options.mcpManager.dispose();
     this.mountedHands.clear();
   }
 

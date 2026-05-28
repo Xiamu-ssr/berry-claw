@@ -16,7 +16,7 @@ import {
   providerInstanceSchema,
   providerTypeSchema,
 } from '@berry-agent/models';
-import { zTeamMessage, zTeamState, zWorklistTask } from '@berry-agent/team';
+import { zTeamMessage, zTeamState, zWorklistTask } from '@berry-agent/team/schema';
 import type {
   ModelBinding,
   ModelProviderRef,
@@ -24,10 +24,10 @@ import type {
   ProviderPreset,
   TierId,
 } from '@berry-agent/models';
-import type { TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/team';
+import type { TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/team/types';
 import { zSafetyLevel } from './safety.js';
 
-export type { TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/team';
+export type { TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/team/types';
 
 export const zFactsResponse = z.object({
   changes: z.array(zFactChange),

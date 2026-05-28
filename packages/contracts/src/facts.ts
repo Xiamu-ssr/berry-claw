@@ -1,16 +1,15 @@
 import { z } from 'zod';
 import { zSafetyLevel } from './safety.js';
-import { zAgentHomeSnapshot, zProjectSharedPaths } from '@berry-agent/core/schema';
-import { zReasoningEffort } from '@berry-agent/core';
-import { mcpServerStatusSchema, mcpServerStatusViewSchema } from '@berry-agent/mcp';
-import { zWorklistTask } from '@berry-agent/team';
+import { zAgentHomeSnapshot, zProjectSharedPaths, zReasoningEffort } from '@berry-agent/core/schema';
+import { mcpServerStatusSchema, mcpServerStatusViewSchema } from '@berry-agent/mcp/schema';
+import { zWorklistTask } from '@berry-agent/team/schema';
 import type {
   AgentHomeSnapshot,
   ProjectSharedPaths,
   ReasoningEffort,
-} from '@berry-agent/core';
-import type { MCPServerStatus } from '@berry-agent/mcp';
-import type { WorklistTask } from '@berry-agent/team';
+} from '@berry-agent/core/schema';
+import type { MCPServerStatus } from '@berry-agent/mcp/schema';
+import type { WorklistTask } from '@berry-agent/team/types';
 
 export type AgentHomeFact = AgentHomeSnapshot;
 export type ProjectSharedPathsFact = ProjectSharedPaths;

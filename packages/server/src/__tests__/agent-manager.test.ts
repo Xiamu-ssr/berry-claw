@@ -107,11 +107,11 @@ describe('AgentManager tool wiring', () => {
 
     try {
       const oldRuntime = manager.getRuntime('coder');
-      expect(oldRuntime.isDestroyed).toBe(false);
+      expect(oldRuntime.isDisposed).toBe(false);
 
       await manager.reloadRuntime();
 
-      expect(oldRuntime.isDestroyed).toBe(true);
+      expect(oldRuntime.isDisposed).toBe(true);
       expect(manager.getRuntime('coder')).not.toBe(oldRuntime);
     } finally {
       await manager.close();
@@ -124,6 +124,6 @@ describe('AgentManager tool wiring', () => {
 
     await manager.close();
 
-    expect(oldRuntime.isDestroyed).toBe(true);
+    expect(oldRuntime.isDisposed).toBe(true);
   });
 });

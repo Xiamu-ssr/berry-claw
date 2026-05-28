@@ -132,8 +132,8 @@ export class AgentManager {
     this.worker = new Worker<AgentEntry>({
       env: this.runtimeFactory.env,
       registryHooks: {
-        onDestroyError: (agentId, err) => {
-          console.warn(`[agent-manager] destroying agent ${agentId} threw:`, err);
+        onDisposeError: (agentId: string, err: unknown) => {
+          console.warn(`[agent-manager] disposing agent ${agentId} threw:`, err);
         },
       },
     });
