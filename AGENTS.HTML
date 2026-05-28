@@ -54,9 +54,9 @@
   <p class="muted">本文件是 Berry Claw 的产品、架构、开发和发布事实源。README.md 和 AGENTS.md 只引用本文档，避免文档漂移。</p>
 
   <h2>定位</h2>
-  <p><strong>Berry Claw</strong> 是基于 Berry Agent SDK 的<strong>第一个</strong> agent 产品。它不是 SDK 本体,也不是未来 Berry platform 的全部 — 它是 platform 上的一个产品实例,把 SDK + 即将拆出的 worker 能力包装成可运行的后端、Web 前台、桌面客户端和手机客户端。</p>
+  <p><strong>Berry Claw</strong> 是基于 Berry Agent platform 的<strong>第一个</strong> agent 产品。它不是 SDK 本体,也不是 Berry platform 的全部 — 它是 platform 上的一个产品实例,通过 <code>@berry-agent/worker</code> 把 SDK runtime 包装成可运行的后端、Web 前台、桌面客户端和手机客户端。</p>
   <div class="note" style="margin: 14px 0; padding: 12px; border-left: 3px solid #2563eb; background: var(--panel);">
-    <strong>架构演进中:</strong>Claw server 目前同时承担<strong>产品逻辑</strong>和 <strong>worker daemon</strong> 两件事。Milestone 1 会把 worker 部分抽离成独立包 <code>@berry-agent/worker</code>,Claw 通过 in-process API 调用它。最终 Claw = 产品层(REST/WS/UI/auth/config),worker = 跑 SDK runtime 的 daemon。详细路线见 <code>docs/anthropic-managed-agents-notes.md</code> 的 Product Strategy 段。
+    <strong>当前架构:</strong>Claw server 内部持有一个 in-process <code>@berry-agent/worker</code> <code>Worker</code> 实例,跑所有 agent runtime。未来要做分布式部署时,Claw server 改成 <code>@berry-agent/a8s</code> 客户端,真正的 worker 在远程机器(<code>berry-worker</code> daemon)跑;Claw 不变,只换 transport。详细 platform 路线见 <code>docs/anthropic-managed-agents-notes.md</code>。
   </div>
   <div class="grid">
     <section class="card"><strong>后台</strong><br><code>@berry-agent/claw-server</code>：host adapter、CLI、REST/WebSocket、实例密钥、产品配置、SDK runtime 挂载。</section>
@@ -191,7 +191,7 @@ npm run build:mobile</code></pre>
     <li>Claw 不重复实现 SDK runtime：agent lifecycle、provider messages、session view hydrate、event log、tool loop、MCP adapter、Skill loader、PromptPack、memory、safe、observe collector、context-window inference、execution environment contract 和 environment prompt 属于 SDK。</li>
     <li>Claw 负责产品事实和交互：server instance、auth、UI state、facts bus、REST/WebSocket、平台壳、配置页面。</li>
     <li>删除产品 <code>AgentEntry</code> 只删除 registry row；Claw 不移动、不归档、不删除 SDK-owned agent home。后续如果需要清理数据，应由 SDK 提供显式 data lifecycle API。</li>
-    <li>丢弃或关闭 live runtime 必须先调用 SDK <code>ManagedAgentRuntime.destroy()</code>；Claw 可以释放产品侧引用和 MCP 投影，但 hand、memory provider、sleep/interject waiter 的关闭语义属于 SDK。</li>
+    <li>丢弃或关闭 live runtime 必须先调用 SDK <code>ManagedAgentRuntime.dispose()</code>；Claw 可以释放产品侧引用和 MCP 投影，但 hand、memory provider、sleep/interject waiter 的关闭语义属于 SDK。</li>
     <li>项目共享数据路径属于 SDK：Claw server 只把 <code>projectSharedPaths</code> 投影进 facts，Claw contracts 复用 SDK schema，Claw client 只显示后端给出的路径。</li>
     <li>项目级 safety 配置属于 SDK safe：Claw 可以编辑 <code>level</code>，但读写 <code>.berry/safety.json</code> 的语义不在产品层复制。</li>
     <li>人类输入块、AgentHome、ProjectSharedPaths schema 来自 SDK <code>@berry-agent/core/schema</code>;<code>zReasoningEffort</code> 来自 SDK <code>@berry-agent/core</code>;chat/session view schema 来自 SDK <code>@berry-agent/core/chat-schema</code>;MCP server status enum/view 来自 SDK <code>@berry-agent/mcp</code>(<code>mcpServerStatusSchema</code> / <code>mcpServerStatusViewSchema</code>);team/worklist schema 来自 SDK <code>@berry-agent/team</code>;Claw contracts 只给 WebSocket/REST 包 transport envelope 并 re-export 上述 SDK schema,避免成为隐式第二事实源。</li>
@@ -216,7 +216,7 @@ npm run build:mobile</code></pre>
     <li>聊天历史通过 SDK <code>getSessionView/listSessionViews</code> 从 <code>events.jsonl</code> 构造；event log 读写由 SDK <code>zSessionEvent</code> 校验，实时 timeline 通过 SDK <code>timelineEventFromAgentEvent</code> 投影；不能从 compact 后的 <code>messages.json</code> 还原产品历史，也不能在 Claw 后端保存第二份消息状态。</li>
     <li>session/chat lifecycle 和 context size 通过 SDK <code>ManagedAgentRuntime</code> 执行；Claw 不维护 active-session map，也不自己拼 pending user / assistant hydrate 或读取 session token metadata。</li>
     <li>Claw 的 live agent runtime 组装已上移到 SDK <code>@berry-agent/runtime</code>；Claw <code>AgentRuntimeFactory</code> 只是产品配置适配器，<code>AgentManager</code> 现阶段用 SDK <code>ManagedRuntimeRegistry</code> 管 live runtime mount/drop/replace，并 await teardown，不再直接拼 provider、hands、memory、safe、observe、skills。SDK 已提供 <code>ManagedRuntimeSupervisor</code> / <code>ManagedRuntimeWakeScheduler</code> 作为下一步运行所有权和后台唤醒边界，Claw 不应再新增自己的 lease/wake/job 状态机。</li>
-    <li>Claw 为每个 agent 选择的 sandbox/container/remote execution environment 交给 SDK <code>ExecutionEnvironmentProvider</code> 供给，并由 SDK runtime lifecycle/registry 持有；runtime reload/delete/close 时 await <code>ManagedAgentRuntime.destroy()</code>，确保 hand、memory provider 和环境释放完成后才继续，后续容器/远程 worker 也按这个边界接入。</li>
+    <li>Claw 为每个 agent 选择的 sandbox/container/remote execution environment 交给 SDK <code>ExecutionEnvironmentProvider</code> 供给，并由 SDK runtime lifecycle/registry 持有；runtime reload/delete/close 时 await <code>ManagedAgentRuntime.dispose()</code>，确保 hand、memory provider 和环境释放完成后才继续，后续容器/远程 worker 也按这个边界接入。</li>
     <li><code>AgentSessionHost</code> 负责 SDK session view/fact/delete/todo 和 approval request/decision event 持久化；<code>AgentContextHost</code> 负责 SDK memory/project knowledge/prompt block API；<code>AgentFileHost</code> 负责只读 file browser。</li>
     <li><code>AgentChatHost</code> 负责 live turn dispatch 和 observe cost enrichment；<code>AgentMcpHost</code> 负责 per-agent MCP hand sync/release；<code>AgentReloadHost</code> 负责 runtime rebuild/reload/model switching；<code>AgentLifecycleHost</code> 负责 restart/reload runtime。</li>
     <li><code>config-schema.ts</code> 是产品 config schema/normalization 事实源；<code>ClawHome</code> 是产品目录布局事实源。<code>ConfigManager</code> 不再同时承载 schema、路径和业务配置变更。</li>
