@@ -56,7 +56,8 @@
   <h2>定位</h2>
   <p><strong>Berry Claw</strong> 是基于 Berry Agent platform 的<strong>第一个</strong> agent 产品。它不是 SDK 本体,也不是 Berry platform 的全部 — 它是 platform 上的一个产品实例,通过 <code>@berry-agent/worker</code> 把 SDK runtime 包装成可运行的后端、Web 前台、桌面客户端和手机客户端。</p>
   <div class="note" style="margin: 14px 0; padding: 12px; border-left: 3px solid #2563eb; background: var(--panel);">
-    <strong>当前架构:</strong>Claw server 内部持有一个 in-process <code>@berry-agent/worker</code> <code>Worker</code> 实例,跑所有 agent runtime。未来要做分布式部署时,Claw server 改成 <code>@berry-agent/a8s</code> 客户端,真正的 worker 在远程机器(<code>berry-worker</code> daemon)跑;Claw 不变,只换 transport。详细 platform 路线见 <code>docs/anthropic-managed-agents-notes.md</code>。
+    <strong>当前架构:</strong>Claw server 内部持有一个 in-process <code>@berry-agent/worker</code> <code>Worker</code> 实例,跑所有 agent runtime。
+    <strong>分布式路径已就绪</strong>:Berry platform 这一侧的 a8s 控制面已经发布(<code>@berry-agent/a8s-server</code> 提供 HTTP 控制面 + 内置运维 UI,<code>@berry-agent/worker-daemon</code> 是独立 worker 进程,<code>@berry-agent/cluster-protocol</code> 是 wire 事实源)。Claw 切换分布式部署时,server 改成 <code>A8sOperatorClient</code> 客户端、真正的 worker 在远程机器(<code>berry-worker</code> daemon)跑;Claw 前端/产品契约不变,只换 transport。详细 platform 形态见 <a href="https://github.com/Xiamu-ssr/berry-agent-sdk/blob/main/AGENTS.HTML"><code>berry-agent-sdk/AGENTS.HTML</code></a>。
   </div>
   <div class="grid">
     <section class="card"><strong>后台</strong><br><code>@berry-agent/claw-server</code>：host adapter、CLI、REST/WebSocket、实例密钥、产品配置、SDK runtime 挂载。</section>
