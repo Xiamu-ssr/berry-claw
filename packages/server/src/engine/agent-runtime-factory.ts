@@ -75,7 +75,12 @@ export class AgentRuntimeFactory {
       reasoningEffort: entry.reasoningEffort,
       promptPack: entry.promptPack,
       toolDenylist: entry.disabledTools ?? [],
-      localWorkspace: { allowedTools: entry.tools },
+      // 新-1: localWorkspace split into workspaceTools (env-bound) + webTools
+      // (env-less). The old single allowedTools filtered the combined set, so
+      // pass it to both to preserve behavior. (This whole factory is slated
+      // for the C rewrite onto @berry-agent/client.)
+      workspaceTools: { allowedTools: entry.tools },
+      webTools: { allowedTools: entry.tools },
       hostHandDisplayName: 'Berry Claw system',
       hostTools: createBerryTools({
         getActiveAgentId: this.opts.getActiveAgentId,
