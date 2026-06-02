@@ -22,7 +22,8 @@
   },
   "overrides": {
     "@berry-agent/runtime": "file:../berry-agent-sdk/packages/runtime",
-    "@berry-agent/worker": "file:../berry-agent-sdk/packages/worker"
+    "@berry-agent/worker": "file:../berry-agent-sdk/packages/worker",
+    "@berry-agent/client": "file:../berry-agent-sdk/packages/client"
   },
   "engines": {
     "node": ">=20"

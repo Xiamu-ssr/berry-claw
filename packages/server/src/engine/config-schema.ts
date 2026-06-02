@@ -56,6 +56,21 @@ export interface AppConfig {
     challengeTtlMs: number;
     allowAnonymous: boolean;
   };
+  /**
+   * a8s control-plane connection. berry-claw is a thin BFF: agent engines
+   * run on a8s/workers, never in this process. The BFF reaches a8s only
+   * through @berry-agent/client over HTTP+token. `token` is the
+   * admin/bootstrap secret the BFF holds server-side and never sends to
+   * the browser.
+   *
+   * Optional during the migration to the thin-BFF architecture: when
+   * absent the legacy in-process engine path is still used. Once the BFF
+   * cut-over lands this becomes required.
+   */
+  a8s?: {
+    url: string;
+    token?: string;
+  };
 }
 
 const DEFAULT_SESSION_TTL_MS = 86_400_000;
