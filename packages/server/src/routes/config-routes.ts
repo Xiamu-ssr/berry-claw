@@ -204,9 +204,11 @@ export function registerConfigRoutes(app: Express, manager: AgentManager): void 
   /**
    * Flat model list used by the chat-area model switcher and the AgentsPage
    * model dropdown; this is a view-only projection of Layer-2 bindings.
+   * Pass ?agentId to include that agent's currently-resolved model as `current`.
    */
-  app.get('/api/models', (_req, res) => {
+  app.get('/api/models', (req, res) => {
     const bindings = manager.config.listModels();
+    const agentId = typeof req.query.agentId === 'string' ? req.query.agentId : undefined;
     res.json({
       models: bindings.map(({ id, entry }) => ({
         model: id,
@@ -214,7 +216,7 @@ export function registerConfigRoutes(app: Express, manager: AgentManager): void 
         type: 'model',
         contextWindow: entry.contextWindow,
       })),
-      current: manager.currentModel(),
+      current: agentId ? manager.currentModel(agentId) : null,
     });
   });
 
@@ -227,8 +229,8 @@ export function registerConfigRoutes(app: Express, manager: AgentManager): void 
     const parsed = zModelSwitchRequest.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
     try {
-      await manager.switchModel(parsed.data.model);
-      res.json({ ok: true, current: manager.currentModel() });
+      await manager.switchModel(parsed.data.agentId, parsed.data.model);
+      res.json({ ok: true, current: manager.currentModel(parsed.data.agentId) });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }

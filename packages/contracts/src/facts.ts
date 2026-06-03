@@ -79,7 +79,6 @@ export const zAgentFact = z.object({
   projectPaths: zProjectSharedPathsFact.optional(),
   status: zAgentStatus,
   statusDetail: z.string().optional(),
-  isActive: z.boolean(),
   instantiated: z.boolean(),
   tools: z.array(z.string()).optional(),
   disabledTools: z.array(z.string()).optional(),

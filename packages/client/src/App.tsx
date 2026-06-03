@@ -39,7 +39,10 @@ export default function App() {
   const activeInstance = useActiveInstance();
   const agentFacts = useAgentFacts();
   const teamFacts = useTeamFacts();
-  const activeAgent = agentFacts.find((a) => a.isActive) ?? agentFacts[0];
+  // Default to the first agent; selection is frontend-owned (the backend BFF
+  // no longer tracks an "active" agent). `selectedAgentId` is the real source
+  // of truth for which agent the user is viewing.
+  const activeAgent = agentFacts[0];
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(activeAgent?.id);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const selectedAgentIdRef = useRef<string | undefined>(selectedAgentId);
@@ -332,15 +335,9 @@ export default function App() {
   const handleSwitchAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentIdRef.current) return;
     setSelectedAgentId(agentId);
+    factStore.setSelectedAgent(agentId);
     resetForAgentSwitch(agentId);
-    void apiFetch(API.agentActivate(agentId), { method: 'POST' }).catch((err) => {
-      toastRef.current.show({
-        variant: 'error',
-        title: '切换 agent 失败',
-        message: err instanceof Error ? err.message : String(err),
-        durationMs: 5000,
-      });
-    });
+    // Selection is frontend-owned now — no backend round-trip to "activate".
     void fetchAgentContextSize(agentId);
     void fetchAgentSessions(agentId);
   }, [fetchAgentContextSize, fetchAgentSessions, resetForAgentSwitch]);
@@ -424,11 +421,13 @@ export default function App() {
   const handleModelChange = useCallback(async (model: string) => {
     const nextModel = model.trim();
     if (!nextModel) return;
+    const agentId = selectedAgentIdRef.current;
+    if (!agentId) return;
     try {
       const res = await apiFetch(API.modelsSwitch, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: nextModel }),
+        body: JSON.stringify({ model: nextModel, agentId }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setModelOptions((prev) => uniqueStrings([nextModel, ...prev]));

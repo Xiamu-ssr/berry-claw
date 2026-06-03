@@ -32,6 +32,10 @@ class FactStore {
   private agentsList: AgentFact[] = [];
   private teamsList: TeamFact[] = [];
   private sessionsList: SessionFact[] = [];
+  /** Which agent the UI is currently viewing. Frontend-owned (the backend
+   *  is a thin BFF and no longer tracks a single "active" agent). Persisted
+   *  so a reload keeps the user where they were; defaults to the first agent. */
+  private selectedAgentId: string | undefined = readPersistedSelection();
   private activeAgentCache: AgentFact | undefined;
 
   private listenersByKind: Record<FactKind, Set<Listener>> = {
@@ -76,7 +80,7 @@ class FactStore {
   private rebuildCache(kind: Exclude<FactKind, 'system'>): void {
     if (kind === 'agent') {
       this.agentsList = [...this.agents.values()];
-      this.activeAgentCache = this.agentsList.find((a) => a.isActive);
+      this.activeAgentCache = this.resolveActiveAgent();
     } else if (kind === 'team') {
       this.teamsList = [...this.teams.values()];
     } else {
@@ -112,6 +116,28 @@ class FactStore {
   /** Currently-active agent — cached, stable identity until it changes. */
   activeAgent(): AgentFact | undefined { return this.activeAgentCache; }
 
+  /** Frontend-owned selection. The UI calls this when the user picks an
+   *  agent; the backend is no longer involved in "which agent is current". */
+  setSelectedAgent(agentId: string): void {
+    if (this.selectedAgentId === agentId) return;
+    this.selectedAgentId = agentId;
+    persistSelection(agentId);
+    this.activeAgentCache = this.resolveActiveAgent();
+    this.listenersByKind.agent.forEach((fn) => fn());
+  }
+
+  getSelectedAgentId(): string | undefined { return this.selectedAgentId; }
+
+  /** Resolve the viewed agent: the explicit selection if it still exists,
+   *  else the first agent (stable default so the UI always has a target). */
+  private resolveActiveAgent(): AgentFact | undefined {
+    if (this.selectedAgentId) {
+      const sel = this.agents.get(this.selectedAgentId);
+      if (sel) return sel;
+    }
+    return this.agentsList[0];
+  }
+
   private notifyAllKinds(): void {
     this.listenersByKind.agent.forEach((fn) => fn());
     this.listenersByKind.team.forEach((fn) => fn());
@@ -121,6 +147,24 @@ class FactStore {
 }
 
 export const factStore = new FactStore();
+
+const SELECTION_KEY = 'berry-claw.selectedAgentId';
+
+function readPersistedSelection(): string | undefined {
+  try {
+    return localStorage.getItem(SELECTION_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function persistSelection(agentId: string): void {
+  try {
+    localStorage.setItem(SELECTION_KEY, agentId);
+  } catch {
+    /* localStorage unavailable (private mode, SSR) — selection stays in-memory */
+  }
+}
 
 // Re-export the paths import so consumers don't need to reach into api/.
 // (Trivial but keeps the public store surface self-contained.)

@@ -1,8 +1,6 @@
 export interface AgentLifecycleHostOptions {
   liveAgentIds: () => string[];
-  activeAgentId: () => string;
   dropAgent: (agentId: string) => Promise<void>;
-  getRuntime: (agentId: string) => unknown;
   emitAgentFact: (agentId: string) => void;
   emitSystemFact: () => void;
 }
@@ -50,13 +48,9 @@ export class AgentLifecycleHost {
       await this.options.dropAgent(id);
       this.options.emitAgentFact(id);
     }
-    const activeAgentId = this.options.activeAgentId();
-    try {
-      this.options.getRuntime(activeAgentId);
-      this.options.emitAgentFact(activeAgentId);
-    } catch {
-      // Active agent may have been deleted from config; facts already reflect persisted state.
-    }
+    // Agents are now lazy — each is re-created on its next request. There is
+    // no "active" agent to eagerly re-warm (the frontend tracks which agent
+    // it's viewing and will drive a fresh request).
     this.options.emitSystemFact();
   }
 }

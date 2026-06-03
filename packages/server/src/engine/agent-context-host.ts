@@ -5,37 +5,34 @@ import { listPromptBlocks } from './prompt-blocks.js';
 
 export interface AgentContextHostOptions {
   config: ConfigManager;
-  getActiveAgentId: () => string;
   getRuntime: (agentId: string) => ManagedAgentRuntime;
 }
 
 export class AgentContextHost {
   constructor(private readonly options: AgentContextHostOptions) {}
 
-  async readMemory(agentId?: string): Promise<{ path: string; content: string }> {
-    const targetId = this.requireAgentId(agentId);
-    return this.options.getRuntime(targetId).readMemory();
+  async readMemory(agentId: string): Promise<{ path: string; content: string }> {
+    this.requireAgent(agentId);
+    return this.options.getRuntime(agentId).readMemory();
   }
 
-  async writeMemory(agentId: string | undefined, content: string): Promise<{ path: string; bytes: number }> {
-    const targetId = this.requireAgentId(agentId);
-    return this.options.getRuntime(targetId).writeMemory(content);
+  async writeMemory(agentId: string, content: string): Promise<{ path: string; bytes: number }> {
+    this.requireAgent(agentId);
+    return this.options.getRuntime(agentId).writeMemory(content);
   }
 
-  async readProjectKnowledge(agentId?: string): Promise<{ project: string | null; files: Array<{ path: string; content: string }> }> {
-    const targetId = this.requireAgentId(agentId);
-    return this.options.getRuntime(targetId).readProjectKnowledge();
+  async readProjectKnowledge(agentId: string): Promise<{ project: string | null; files: Array<{ path: string; content: string }> }> {
+    this.requireAgent(agentId);
+    return this.options.getRuntime(agentId).readProjectKnowledge();
   }
 
-  async describePromptBlocks(agentId?: string): Promise<PromptBlockInfo[]> {
-    const targetId = this.requireAgentId(agentId);
-    const entry = this.options.config.getAgent(targetId);
-    if (!entry) throw new Error(`Agent "${targetId}" not found`);
-    const runtime = this.options.getRuntime(targetId);
+  async describePromptBlocks(agentId: string): Promise<PromptBlockInfo[]> {
+    const entry = this.requireAgent(agentId);
+    const runtime = this.options.getRuntime(agentId);
     const snapshot = runtime.snapshot();
-    const workspace = entry.workspace ?? this.options.config.agentWorkspace(targetId);
+    const workspace = entry.workspace ?? this.options.config.agentWorkspace(agentId);
     return listPromptBlocks({
-      agentId: targetId,
+      agentId,
       entry,
       workspace,
       workspaceInstructions: await runtime.readInstructions(),
@@ -45,8 +42,7 @@ export class AgentContextHost {
   }
 
   async writePromptBlock(agentId: string, blockId: string, content: string): Promise<PromptBlockInfo[]> {
-    const entry = this.options.config.getAgent(agentId);
-    if (!entry) throw new Error(`Agent "${agentId}" not found`);
+    const entry = this.requireAgent(agentId);
     const runtime = this.options.getRuntime(agentId);
 
     switch (blockId) {
@@ -66,11 +62,9 @@ export class AgentContextHost {
     return this.describePromptBlocks(agentId);
   }
 
-  private requireAgentId(agentId?: string): string {
-    const targetId = agentId ?? this.options.getActiveAgentId();
-    if (!targetId || !this.options.config.getAgent(targetId)) {
-      throw new Error('agent not found');
-    }
-    return targetId;
+  private requireAgent(agentId: string) {
+    const entry = this.options.config.getAgent(agentId);
+    if (!entry) throw new Error(`Agent "${agentId}" not found`);
+    return entry;
   }
 }

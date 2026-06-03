@@ -9,15 +9,14 @@ import type {
 import { calculateCost, type ModelPricing } from '@berry-agent/observe';
 
 export interface AgentChatHostOptions {
-  getActiveAgentId: () => string;
   getRuntime: (agentId: string) => ManagedAgentRuntime;
   pricingOverrides: () => Record<string, ModelPricing>;
   emitSessionFact: (view: AgentSessionView) => void;
 }
 
 export interface AgentChatOptions {
+  agentId: string;
   sessionId?: string;
-  agentId?: string;
   requestId?: string;
   onEvent?: (event: AgentEvent) => void;
   onUserMessagePersisted?: (message: AgentChatMessage, sessionId: string) => void;
@@ -33,15 +32,14 @@ export interface AgentChatResult {
 export class AgentChatHost {
   constructor(private readonly options: AgentChatHostOptions) {}
 
-  async send(prompt: string | ContentBlock[], options?: AgentChatOptions): Promise<AgentChatResult> {
-    const targetId = options?.agentId ?? this.options.getActiveAgentId();
-    const turn = await this.options.getRuntime(targetId).send(prompt, {
-      sessionId: options?.sessionId,
-      requestId: options?.requestId,
+  async send(prompt: string | ContentBlock[], options: AgentChatOptions): Promise<AgentChatResult> {
+    const turn = await this.options.getRuntime(options.agentId).send(prompt, {
+      sessionId: options.sessionId,
+      requestId: options.requestId,
       onEvent: (event: AgentEvent) => {
-        options?.onEvent?.(this.withCost(event));
+        options.onEvent?.(this.withCost(event));
       },
-      onUserMessagePersisted: options?.onUserMessagePersisted,
+      onUserMessagePersisted: options.onUserMessagePersisted,
     });
 
     if (turn.view) this.options.emitSessionFact(turn.view);

@@ -59,7 +59,6 @@ export type AgentEntry = z.infer<typeof zAgentEntry>;
 
 export const zAgentsResponse = z.object({
   agents: z.array(z.object({ id: z.string(), entry: zAgentEntry })),
-  activeAgent: z.string(),
 });
 export type AgentsResponse = z.infer<typeof zAgentsResponse>;
 
@@ -193,6 +192,7 @@ export type CredentialUpdateRequest = z.infer<typeof zCredentialUpdateRequest>;
 
 export const zModelSwitchRequest = z.object({
   model: z.string().min(1),
+  agentId: z.string().min(1),
 }).strict();
 export type ModelSwitchRequest = z.infer<typeof zModelSwitchRequest>;
 
@@ -322,7 +322,7 @@ export const zSessionsResponse = z.object({
 export type SessionsResponse = z.infer<typeof zSessionsResponse>;
 
 export const zSessionCreateRequest = z.object({
-  agentId: z.string().optional(),
+  agentId: z.string().min(1),
 });
 export type SessionCreateRequest = z.infer<typeof zSessionCreateRequest>;
 

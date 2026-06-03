@@ -8,6 +8,7 @@ import { AgentModulePanel } from './agents/AgentModules';
 import { emptyAgentForm, type AgentForm, type DetailTab, type InspectRuntime } from './agents/types';
 import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useSystemFact } from '../facts/useFacts';
+import { factStore } from '../facts/store';
 import type {
   AgentFact,
   ModelCatalogItem as ModelInfo,
@@ -24,9 +25,8 @@ import {
 export default function AgentsPage() {
   const agents = useAgentFacts();
   const system = useSystemFact();
-  const activeAgent = agents.find((agent) => agent.isActive);
-  const [selectedId, setSelectedId] = useState<string | undefined>(activeAgent?.id ?? agents[0]?.id);
-  const selected = agents.find((agent) => agent.id === selectedId) ?? activeAgent ?? agents[0];
+  const [selectedId, setSelectedId] = useState<string | undefined>(agents[0]?.id);
+  const selected = agents.find((agent) => agent.id === selectedId) ?? agents[0];
 
   const [query, setQuery] = useState('');
   const [detailTab, setDetailTab] = useState<DetailTab>('context');
@@ -43,9 +43,9 @@ export default function AgentsPage() {
       return;
     }
     if (!selectedId || !agents.some((agent) => agent.id === selectedId)) {
-      setSelectedId(activeAgent?.id ?? agents[0]?.id);
+      setSelectedId(agents[0]?.id);
     }
-  }, [activeAgent?.id, agents, selectedId]);
+  }, [agents, selectedId]);
 
   const refetchModels = useCallback(async () => {
     const res = await apiFetch(API.models);
@@ -181,12 +181,8 @@ export default function AgentsPage() {
   };
 
   const activateAgent = async (agentId: string) => {
-    const res = await apiFetch(API.agentActivate(agentId), { method: 'POST' });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showToast(data.error ?? 'Activate failed', 'error');
-      return;
-    }
+    // Selection is frontend-owned now — no backend round-trip.
+    factStore.setSelectedAgent(agentId);
     setSelectedId(agentId);
     window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: agentId }));
     showToast('Active agent switched');
@@ -240,7 +236,7 @@ export default function AgentsPage() {
           <AgentListPane
             agents={filteredAgents}
             selectedId={selected?.id}
-            activeId={activeAgent?.id}
+            activeId={selected?.id}
             query={query}
             onQueryChange={setQuery}
             onSelect={(id) => {
@@ -275,7 +271,7 @@ export default function AgentsPage() {
             <>
               <AgentHero
                 agent={selected}
-                active={selected.id === activeAgent?.id}
+                active={true}
                 loading={loadingRuntime}
                 runtime={runtime}
                 systemSkills={system?.installedSkills ?? []}

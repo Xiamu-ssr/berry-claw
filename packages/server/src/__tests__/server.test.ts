@@ -173,7 +173,6 @@ describe('Agent API', () => {
     const res = await fetch(`${BASE}/api/agents`);
     const data = zAgentsResponse.parse(await res.json());
     expect(data).toHaveProperty('agents');
-    expect(data).toHaveProperty('activeAgent');
   });
 
   it('PUT /api/agents/:id creates an agent', async () => {
@@ -195,12 +194,8 @@ describe('Agent API', () => {
     expect(found.entry.name).toBe('Test Coder');
   });
 
-  it('POST /api/agents/:id/activate switches agent', async () => {
-    const res = await fetch(`${BASE}/api/agents/test-coder/activate`, { method: 'POST' });
-    const data = await res.json();
-    expect(data.ok).toBe(true);
-    expect(data.activeAgent).toBe('test-coder');
-  });
+  // Agent selection is frontend-owned now — there is no backend "activate"
+  // endpoint. (Removed with the active-agent cleanup in the thin-BFF rewrite.)
 
   it('GET /api/agents/:id/inspect returns agent info', async () => {
     const res = await fetch(`${BASE}/api/agents/test-coder/inspect`);
@@ -387,7 +382,13 @@ describe('Safety API', () => {
 
 describe('Session API', () => {
   it('GET /api/sessions returns empty initially', async () => {
-    const res = await fetch(`${BASE}/api/sessions`);
+    // agentId is required now (no active-agent fallback).
+    await fetch(`${BASE}/api/agents/sess-list-agent`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Sess List', model: 'gpt-4o' }),
+    });
+    const res = await fetch(`${BASE}/api/sessions?agentId=sess-list-agent`);
     const data = zSessionsResponse.parse(await res.json());
     expect(data).toHaveProperty('sessions');
   });

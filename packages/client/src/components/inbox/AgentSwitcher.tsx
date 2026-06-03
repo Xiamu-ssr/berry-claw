@@ -72,7 +72,7 @@ export default function AgentSwitcher({
                         {modelShortName(agent.model)} / {agent.project ? lastPathPart(agent.project) : 'workspace only'}
                       </span>
                     </span>
-                    {agent.isActive && (
+                    {active && (
                       <span className="rounded-md bg-sky-300/10 px-1.5 py-0.5 text-[10px] text-sky-200">
                         active
                       </span>

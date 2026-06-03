@@ -63,6 +63,10 @@ export function attachWebSocketServer(
           }
           case 'pause_agent': {
             try {
+              if (!msg.agentId) {
+                ws.send(JSON.stringify({ type: 'error', message: 'pause_agent requires agentId' }));
+                break;
+              }
               const reason = typeof msg.reason === 'string' ? msg.reason : 'paused by user';
               const result = manager.pauseAgent(msg.agentId, reason);
               ws.send(JSON.stringify({
@@ -79,7 +83,11 @@ export function attachWebSocketServer(
           }
           case 'interject': {
             const text = typeof msg.text === 'string' ? msg.text : '';
-            const interjectAgentId = manager.activeAgent;
+            const interjectAgentId = msg.agentId;
+            if (!interjectAgentId) {
+              ws.send(JSON.stringify({ type: 'error', message: 'interject requires agentId' }));
+              break;
+            }
             if (!text.trim()) {
               ws.send(JSON.stringify({ type: 'error', agentId: interjectAgentId, message: 'interject text required' }));
               break;

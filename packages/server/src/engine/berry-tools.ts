@@ -10,9 +10,10 @@ import type { ToolRegistration } from '@berry-agent/core';
 import { ToolGroup } from '@berry-agent/core';
 
 export interface BerryToolDeps {
-  getActiveAgentId: () => string;
+  /** The agent these tools are mounted on — its own identity. */
+  agentId: string;
   getAgentStatus: (id: string) => { status: string; detail?: string } | null;
-  currentModel: () => { model: string; providerName: string; type: string } | null;
+  currentModel: (agentId: string) => { model: string; providerName: string; type: string } | null;
   listAgents: () => Array<{ id: string; entry: { name: string; model: string } }>;
   getTiers: () => Record<string, string | undefined>;
   listProviderInstances: () => Array<{
@@ -61,8 +62,8 @@ export function createBerryTools(deps: BerryToolDeps): ToolRegistration[] {
           content: JSON.stringify({
             port: deps.port,
             uptimeSeconds: uptime,
-            activeAgent: deps.getActiveAgentId(),
-            currentModel: deps.currentModel(),
+            activeAgent: deps.agentId,
+            currentModel: deps.currentModel(deps.agentId),
             tiers: deps.getTiers(),
             agents,
           }, null, 2),

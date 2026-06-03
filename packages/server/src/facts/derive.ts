@@ -65,7 +65,6 @@ export function deriveAgentFact(
     projectPaths,
     status: (status?.status as AgentFact['status']) ?? 'idle',
     statusDetail: status?.detail,
-    isActive: manager.activeAgent === agentId,
     instantiated: !!instance,
     tools: entry.tools,
     disabledTools: entry.disabledTools,

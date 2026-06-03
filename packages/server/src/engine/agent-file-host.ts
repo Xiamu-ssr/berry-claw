@@ -25,36 +25,34 @@ export interface AgentFileContent extends Omit<SDKAgentFileContent, 'root'> {
 export class AgentFileHost {
   constructor(
     private readonly config: ConfigManager,
-    private readonly getActiveAgentId: () => string,
   ) {}
 
-  browseRoot(agentId?: string): AgentBrowseRoot {
+  browseRoot(agentId: string): AgentBrowseRoot {
     const { agentId: targetId, browser } = this.agentFileBrowserFor(agentId);
     return { agentId: targetId, ...browser.browseRoot() };
   }
 
-  async list(agentId?: string, requestPath = ''): Promise<AgentFileList> {
+  async list(agentId: string, requestPath = ''): Promise<AgentFileList> {
     const { agentId: targetId, browser } = this.agentFileBrowserFor(agentId);
     const list = await browser.list(requestPath);
     return { ...list, root: { agentId: targetId, ...list.root } };
   }
 
-  async read(agentId?: string, requestPath = ''): Promise<AgentFileContent> {
+  async read(agentId: string, requestPath = ''): Promise<AgentFileContent> {
     const { agentId: targetId, browser } = this.agentFileBrowserFor(agentId);
     const file = await browser.read(requestPath);
     return { ...file, root: { agentId: targetId, ...file.root } };
   }
 
-  private agentFileBrowserFor(agentId?: string): {
+  private agentFileBrowserFor(agentId: string): {
     agentId: string;
     browser: ReturnType<typeof createAgentFileBrowser>;
   } {
-    const targetId = agentId ?? this.getActiveAgentId();
-    const entry = this.config.getAgent(targetId);
-    if (!entry) throw new Error(`Agent "${targetId}" not found`);
-    const workspace = entry.workspace ?? this.config.agentWorkspace(targetId);
+    const entry = this.config.getAgent(agentId);
+    if (!entry) throw new Error(`Agent "${agentId}" not found`);
+    const workspace = entry.workspace ?? this.config.agentWorkspace(agentId);
     return {
-      agentId: targetId,
+      agentId,
       browser: createAgentFileBrowser(new AgentScope(workspace, entry.project)),
     };
   }

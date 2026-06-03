@@ -135,7 +135,6 @@ export const API = {
   agents: '/api/agents',
   agentStatuses: '/api/agents/statuses',
   agent: (id: string) => `/api/agents/${encodeURIComponent(id)}`,
-  agentActivate: (id: string) => `/api/agents/${encodeURIComponent(id)}/activate`,
   agentInspect: (id: string) => `/api/agents/${encodeURIComponent(id)}/inspect`,
   agentContextSize: (id: string, sessionId?: string) =>
     `/api/agents/${encodeURIComponent(id)}/context-size` +

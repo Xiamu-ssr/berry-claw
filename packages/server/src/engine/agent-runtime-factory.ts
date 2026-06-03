@@ -25,9 +25,8 @@ export interface AgentRuntimeFactoryOptions {
   pricingOverrides: Record<string, ModelPricing>;
   askBridge: () => AskBridge | undefined;
   onStatusChange: (agentId: string) => void;
-  getActiveAgentId: () => string;
   getAgentStatus: (agentId: string) => { status: string; detail?: string } | null;
-  currentModel: () => { model: string; providerName: string; type: string } | null;
+  currentModel: (agentId: string) => { model: string; providerName: string; type: string } | null;
   port: () => number;
   startTime: number;
 }
@@ -83,7 +82,7 @@ export class AgentRuntimeFactory {
       webTools: { allowedTools: entry.tools },
       hostHandDisplayName: 'Berry Claw system',
       hostTools: createBerryTools({
-        getActiveAgentId: this.opts.getActiveAgentId,
+        agentId,
         getAgentStatus: this.opts.getAgentStatus,
         currentModel: this.opts.currentModel,
         listAgents: () => this.opts.config.listAgents(),

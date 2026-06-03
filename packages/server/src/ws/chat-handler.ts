@@ -17,12 +17,12 @@ export async function handleChat(
   requestId?: string,
   agentId?: string,
 ) {
-  const targetAgentId = agentId ?? manager.activeAgent;
+  const targetAgentId = agentId;
   if (!targetAgentId || !manager.config.getAgent(targetAgentId)) {
     ws.send(JSON.stringify({
       type: 'error',
       agentId: targetAgentId ?? 'unknown',
-      message: 'No agent configured. Create an agent first.',
+      message: 'No agent specified. The client must send agentId with each chat.',
     }));
     return;
   }

@@ -13,8 +13,6 @@ export function registerSystemRoutes(app: Express, manager: AgentManager, port: 
     res.json({
       port,
       uptimeSeconds: Math.floor((Date.now() - manager.startTime) / 1000),
-      activeAgent: manager.activeAgent,
-      currentModel: manager.currentModel(),
       tiers: manager.config.getTiers(),
       agents: agents.map(({ id, entry }) => ({
         id,

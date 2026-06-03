@@ -20,6 +20,7 @@ import {
 import { showToast } from './Toast';
 import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useTeamFacts } from '../facts/useFacts';
+import { factStore } from '../facts/store';
 import {
   EmptyState,
   Field,
@@ -372,7 +373,8 @@ function TeamDetail({ leaderId, onBack }: { leaderId: string; onBack: () => void
   };
 
   const chatWithLeader = async () => {
-    await apiFetch(API.agentActivate(leaderId), { method: 'POST' });
+    // Selection is frontend-owned now — set it locally and jump to the inbox.
+    factStore.setSelectedAgent(leaderId);
     window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: leaderId }));
     window.dispatchEvent(new CustomEvent('berry:switch-tab', { detail: 'inbox' }));
   };

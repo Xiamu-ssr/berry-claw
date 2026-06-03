@@ -69,7 +69,6 @@ export class AgentManager {
   private readonly agentMcpHost: AgentMcpHost;
   private readonly reloadHost: AgentReloadHost;
   private readonly sessionHost: AgentSessionHost;
-  private activeAgentId: string;
   /** Pricing overrides (built-in + OpenRouter). Mutated at runtime after
    *  OpenRouter fetch so that per-agent collectors see the updated map. */
   pricingOverrides: Record<string, ModelPricing>;
@@ -123,9 +122,8 @@ export class AgentManager {
       pricingOverrides: this.pricingOverrides,
       askBridge: () => this.askBridge,
       onStatusChange: (agentId) => this.emitAgentFact(agentId),
-      getActiveAgentId: () => this.activeAgentId,
       getAgentStatus: (agentId) => this.getAgentStatus(agentId),
-      currentModel: () => this.currentModel(),
+      currentModel: (agentId) => this.currentModel(agentId),
       port: () => this.port,
       startTime: this.startTime,
     });
@@ -138,7 +136,6 @@ export class AgentManager {
       },
     });
     this.chatHost = new AgentChatHost({
-      getActiveAgentId: () => this.activeAgentId,
       getRuntime: (agentId) => this.getRuntime(agentId),
       pricingOverrides: () => this.pricingOverrides,
       emitSessionFact: (view) => this.emitSessionFact(view),
@@ -152,15 +149,12 @@ export class AgentManager {
     });
     this.contextHost = new AgentContextHost({
       config: this.config,
-      getActiveAgentId: () => this.activeAgentId,
       getRuntime: (agentId) => this.getRuntime(agentId),
     });
-    this.fileHost = new AgentFileHost(this.config, () => this.activeAgentId);
+    this.fileHost = new AgentFileHost(this.config);
     this.lifecycleHost = new AgentLifecycleHost({
       liveAgentIds: () => this.worker.ids(),
-      activeAgentId: () => this.activeAgentId,
       dropAgent: (agentId) => this.dropAgent(agentId),
-      getRuntime: (agentId) => this.getRuntime(agentId),
       emitAgentFact: (agentId) => this.emitAgentFact(agentId),
       emitSystemFact: () => this.emitSystemFact(),
     });
@@ -181,15 +175,11 @@ export class AgentManager {
     this.sessionHost = new AgentSessionHost({
       config: this.config,
       factBus: this.factBus,
-      getActiveAgentId: () => this.activeAgentId,
       getRuntime: (agentId) => this.getRuntime(agentId),
     });
     // Skill market — browses external sources and installs under globalSkillsDir.
     // Stateless service; safe to construct unconditionally on boot.
     this.skillMarket = new SkillMarketService(this.config.globalSkillsDir());
-    // Persisted defaultAgent may be empty; fall back to the first configured
-    // agent so the app still boots into a usable state after restart.
-    this.activeAgentId = this.config.defaultAgent || this.config.listAgents()[0]?.id || '';
   }
 
   /**
@@ -221,8 +211,8 @@ export class AgentManager {
   }
 
   /** Initialize a managed runtime from config. */
-  private initRuntime(agentId?: string): ManagedAgentRuntime {
-    const id = agentId ?? this.activeAgentId;
+  private initRuntime(agentId: string): ManagedAgentRuntime {
+    const id = agentId;
     const entry = this.config.getAgent(id);
     if (!entry) throw new Error(`Agent "${id}" not found in config`);
 
@@ -268,11 +258,10 @@ export class AgentManager {
     this.factBus.emitAgent(agentId, null);
   }
 
-  getRuntime(agentId?: string): ManagedAgentRuntime {
-    const id = agentId ?? this.activeAgentId;
-    const instance = this.worker.get(id);
+  getRuntime(agentId: string): ManagedAgentRuntime {
+    const instance = this.worker.get(agentId);
     if (instance) return instance.runtime;
-    return this.initRuntime(id);
+    return this.initRuntime(agentId);
   }
 
   /** Recreate live agent runtimes so init-only wiring such as toolGuard is rebuilt. */
@@ -368,31 +357,16 @@ export class AgentManager {
     return this.reloadHost.reloadAgent(agentId);
   }
 
-  /** Switch active agent */
-  switchAgent(agentId: string): void {
-    const entry = this.config.getAgent(agentId);
-    if (!entry) throw new Error(`Agent "${agentId}" not found`);
-    const prevActive = this.activeAgentId;
-    this.activeAgentId = agentId;
-    // Persist selection so restart doesn't drop the active agent/session list.
-    this.config.update({ defaultAgent: agentId });
-    // Both the previous active and the new active agent change their
-    // isActive field — emit facts for both so the UI toggles in a
-    // single round-trip.
-    if (prevActive && prevActive !== agentId) this.emitAgentFact(prevActive);
-    this.emitAgentFact(agentId);
-  }
-
   /**
-   * Switch model for the current agent.
+   * Switch model for an agent.
    *
    * Delegates through the runtime reload host, which resolves the model ref
    * through the host modelResolver (tier/model refs, with failover). Writes the
    * new model back to config so currentModel() and the UI have a single
    * source of truth.
    */
-  switchModel(model: string): Promise<void> {
-    return this.reloadHost.switchModel(this.activeAgentId, model);
+  switchModel(agentId: string, model: string): Promise<void> {
+    return this.reloadHost.switchModel(agentId, model);
   }
 
   // ----- Fact bus helpers -----
@@ -440,7 +414,7 @@ export class AgentManager {
   }
 
   /** Create a new empty SDK session and return the SDK-owned UI view. */
-  async createSession(agentId?: string): Promise<AgentSessionView> {
+  async createSession(agentId: string): Promise<AgentSessionView> {
     return this.sessionHost.create(agentId);
   }
 
@@ -449,7 +423,7 @@ export class AgentManager {
    * not maintain its own message history; messages and events stay in the SDK
    * session directory.
    */
-  async loadSessionState(sessionId: string, agentId?: string, options?: { eventLimit?: number }): Promise<AgentSessionView | null> {
+  async loadSessionState(sessionId: string, agentId: string, options?: { eventLimit?: number }): Promise<AgentSessionView | null> {
     return this.sessionHost.load(sessionId, agentId, options);
   }
 
@@ -464,47 +438,46 @@ export class AgentManager {
   }
 
   /** Read SDK session todos for UI side panels. */
-  async getSessionTodos(sessionId: string, agentId?: string): Promise<import('@berry-agent/core').TodoItem[]> {
+  async getSessionTodos(sessionId: string, agentId: string): Promise<import('@berry-agent/core').TodoItem[]> {
     return this.sessionHost.todos(sessionId, agentId);
   }
 
-  async readAgentMemory(agentId?: string): Promise<{ path: string; content: string }> {
+  async readAgentMemory(agentId: string): Promise<{ path: string; content: string }> {
     return this.contextHost.readMemory(agentId);
   }
 
-  async writeAgentMemory(agentId: string | undefined, content: string): Promise<{ path: string; bytes: number }> {
+  async writeAgentMemory(agentId: string, content: string): Promise<{ path: string; bytes: number }> {
     return this.contextHost.writeMemory(agentId, content);
   }
 
-  async readAgentProjectKnowledge(agentId?: string): Promise<{ project: string | null; files: Array<{ path: string; content: string }> }> {
+  async readAgentProjectKnowledge(agentId: string): Promise<{ project: string | null; files: Array<{ path: string; content: string }> }> {
     return this.contextHost.readProjectKnowledge(agentId);
   }
 
-  /** List all persisted sessions for an agent, hydrated for UI.
-   *  When agentId is omitted, uses the active agent. */
-  async listSessionStates(agentId?: string): Promise<AgentSessionView[]> {
+  /** List all persisted sessions for an agent, hydrated for UI. */
+  async listSessionStates(agentId: string): Promise<AgentSessionView[]> {
     return this.sessionHost.list(agentId);
   }
 
-  getAgentBrowseRoot(agentId?: string): AgentBrowseRoot {
+  getAgentBrowseRoot(agentId: string): AgentBrowseRoot {
     return this.fileHost.browseRoot(agentId);
   }
 
-  async listAgentFiles(agentId?: string, requestPath = ''): Promise<AgentFileList> {
+  async listAgentFiles(agentId: string, requestPath = ''): Promise<AgentFileList> {
     return this.fileHost.list(agentId, requestPath);
   }
 
-  async readAgentFile(agentId?: string, requestPath = ''): Promise<AgentFileContent> {
+  async readAgentFile(agentId: string, requestPath = ''): Promise<AgentFileContent> {
     return this.fileHost.read(agentId, requestPath);
   }
 
   /** Delete a session from the SDK-owned session directory. */
-  async deleteSession(sessionId: string, agentId?: string): Promise<void> {
+  async deleteSession(sessionId: string, agentId: string): Promise<void> {
     await this.sessionHost.delete(sessionId, agentId);
   }
 
   /**
-   * Chat with active agent.
+   * Chat with an agent.
    *
    * `prompt` accepts either a plain string or a ContentBlock[] for
    * multimodal input (text + image blocks). The SDK provider adapters
@@ -514,9 +487,9 @@ export class AgentManager {
    */
   async chat(
     prompt: string | ContentBlock[],
-    options?: {
+    options: {
+      agentId: string;
       sessionId?: string;
-      agentId?: string;
       requestId?: string;
       onEvent?: (event: AgentEvent) => void;
       onUserMessagePersisted?: (message: AgentChatMessage, sessionId: string) => void;
@@ -526,17 +499,16 @@ export class AgentManager {
   }
 
   /** Force-abort the current turn for an agent. The SDK persists query_end(error). */
-  pauseAgent(agentId?: string, reason = 'paused by user'): { agentId: string; paused: boolean; status: string; detail?: string } {
-    const id = agentId ?? this.activeAgentId;
-    const inst = this.worker.get(id);
+  pauseAgent(agentId: string, reason = 'paused by user'): { agentId: string; paused: boolean; status: string; detail?: string } {
+    const inst = this.worker.get(agentId);
     if (!inst) {
-      return { agentId: id, paused: false, status: 'idle' };
+      return { agentId, paused: false, status: 'idle' };
     }
     const paused = inst.runtime.pause(reason);
     const status = inst.runtime.getStatus();
-    this.emitAgentFact(id);
+    this.emitAgentFact(agentId);
     return {
-      agentId: id,
+      agentId,
       paused,
       status: status.status,
       detail: status.detail,
@@ -544,34 +516,32 @@ export class AgentManager {
   }
 
   /** Queue a human interjection through the SDK runtime facade. */
-  interjectAgent(text: string, agentId?: string): { agentId: string; status: string; detail?: string } {
-    const id = agentId ?? this.activeAgentId;
-    const runtime = this.getRuntime(id);
+  interjectAgent(text: string, agentId: string): { agentId: string; status: string; detail?: string } {
+    const runtime = this.getRuntime(agentId);
     runtime.interject(text);
     const status = runtime.getStatus();
-    this.emitAgentFact(id);
-    return { agentId: id, status: status.status, detail: status.detail };
+    this.emitAgentFact(agentId);
+    return { agentId, status: status.status, detail: status.detail };
   }
 
   /** Introspect an agent */
-  inspectAgent(agentId?: string): {
+  inspectAgent(agentId: string): {
     id: string;
     entry: AgentEntry;
     runtime: AgentSnapshot | null;
   } {
-    const id = agentId ?? this.activeAgentId;
-    const entry = this.config.getAgent(id);
-    if (!entry) throw new Error(`Agent "${id}" not found`);
-    const instance = this.worker.get(id);
+    const entry = this.config.getAgent(agentId);
+    if (!entry) throw new Error(`Agent "${agentId}" not found`);
+    const instance = this.worker.get(agentId);
     return {
-      id,
+      id: agentId,
       entry,
       runtime: instance ? instance.runtime.snapshot() : null,
     };
   }
 
   /** Structured prompt block registry for inspect/edit UIs. */
-  async describePromptBlocks(agentId?: string): Promise<PromptBlockInfo[]> {
+  async describePromptBlocks(agentId: string): Promise<PromptBlockInfo[]> {
     return this.contextHost.describePromptBlocks(agentId);
   }
 
@@ -589,35 +559,30 @@ export class AgentManager {
   }
 
   /**
-   * Return the current context token size and window for the active session
-   * of the given agent. Falls back to 0 / default window when no session is
-   * active or the agent isn't instantiated yet.
+   * Return the current context token size and window for a session of the
+   * given agent. Falls back to default window when no session is active.
    */
-  async getAgentContextSize(agentId?: string, sessionId?: string): Promise<{ current: number; window: number } | null> {
-    const id = agentId ?? this.activeAgentId;
-    return this.getRuntime(id).contextSize(sessionId);
+  async getAgentContextSize(agentId: string, sessionId?: string): Promise<{ current: number; window: number } | null> {
+    return this.getRuntime(agentId).contextSize(sessionId);
   }
 
   /**
-   * Current model info for the active agent. We report the model id as seen
-   * by the agent's live provider — this may be the upstream remoteModelId
-   * after failover, which is exactly what the UI should surface.
+   * Current model info for an agent. We report the model id as seen by the
+   * agent's live provider — this may be the upstream remoteModelId after
+   * failover, which is exactly what the UI should surface. Null when the
+   * agent isn't instantiated yet.
    */
-  currentModel(): { model: string; providerName: string; type: string } | null {
-    const instance = this.worker.get(this.activeAgentId);
+  currentModel(agentId: string): { model: string; providerName: string; type: string } | null {
+    const instance = this.worker.get(agentId);
     if (!instance) return null;
     const config = instance.runtime.currentProvider;
-    const entry = this.config.getAgent(this.activeAgentId);
-    // Best-effort: prefer the agent entry's model spec for display purposes;
-    // fall back to the raw model id coming out of the provider.
+    const entry = this.config.getAgent(agentId);
     return {
       model: entry?.model ?? config.model,
       providerName: config.type,
       type: config.type,
     };
   }
-
-  get activeAgent(): string { return this.activeAgentId; }
 
   /**
    * Request a restart-like lifecycle action.

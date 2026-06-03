@@ -71,6 +71,7 @@ export const zWsOutgoing = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('interject'),
     text: z.string(),
+    agentId: z.string().optional(),
   }).strict(),
 ]);
 

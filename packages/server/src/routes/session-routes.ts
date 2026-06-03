@@ -3,9 +3,10 @@ import type { AgentManager } from '../engine/agent-manager.js';
 import { zSessionCreateRequest } from '@berry-agent/claw-contracts';
 
 export function registerSessionRoutes(app: Express, manager: AgentManager): void {
-  /** List sessions for an agent (or active agent if no agentId param). */
+  /** List sessions for an agent. */
   app.get('/api/sessions', async (req, res) => {
     const agentId = req.query.agentId as string | undefined;
+    if (!agentId) return res.status(400).json({ error: 'agentId is required' });
     const states = await manager.listSessionStates(agentId);
     res.json({ sessions: states });
   });
@@ -26,6 +27,7 @@ export function registerSessionRoutes(app: Express, manager: AgentManager): void
   /** Current SDK todo scratchpad for a session. */
   app.get('/api/sessions/:id/todos', async (req, res) => {
     const agentId = req.query.agentId as string | undefined;
+    if (!agentId) return res.status(400).json({ error: 'agentId is required' });
     const todos = await manager.getSessionTodos(req.params.id, agentId);
     res.json({ todos });
   });
@@ -33,6 +35,7 @@ export function registerSessionRoutes(app: Express, manager: AgentManager): void
   /** SDK session detail plus observe summary. */
   app.get('/api/sessions/:id', async (req, res) => {
     const agentId = req.query.agentId as string | undefined;
+    if (!agentId) return res.status(400).json({ error: 'agentId is required' });
     const rawLimit = Number(req.query.limit);
     const eventLimit = Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.min(2000, Math.floor(rawLimit))
@@ -46,6 +49,7 @@ export function registerSessionRoutes(app: Express, manager: AgentManager): void
   /** Delete a SDK-owned session. */
   app.delete('/api/sessions/:id', async (req, res) => {
     const agentId = req.query.agentId as string | undefined;
+    if (!agentId) return res.status(400).json({ error: 'agentId is required' });
     await manager.deleteSession(req.params.id, agentId);
     res.json({ ok: true });
   });

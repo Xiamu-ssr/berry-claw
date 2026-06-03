@@ -14,7 +14,7 @@ export function registerAgentRoutes(app: Express, manager: AgentManager): void {
   /** List agents. */
   app.get('/api/agents', (_req, res) => {
     const agents = manager.config.listAgents();
-    res.json({ agents, activeAgent: manager.activeAgent });
+    res.json({ agents });
   });
 
   /**
@@ -113,16 +113,6 @@ export function registerAgentRoutes(app: Express, manager: AgentManager): void {
   app.delete('/api/agents/:id', async (req, res) => {
     await manager.removeAgent(req.params.id);
     res.json({ ok: true });
-  });
-
-  /** Switch active agent. */
-  app.post('/api/agents/:id/activate', (req, res) => {
-    try {
-      manager.switchAgent(req.params.id);
-      res.json({ ok: true, activeAgent: req.params.id });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
   });
 
   /** Read-only file browser for the current agent's project/workspace root. */
