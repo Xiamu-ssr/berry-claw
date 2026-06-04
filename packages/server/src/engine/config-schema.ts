@@ -1,71 +1,31 @@
-import type {
-  ModelBinding,
-  ProviderInstance,
-  TierId,
-} from '@berry-agent/models';
-import type { SafetyLevel } from '@berry-agent/safe/levels';
-import { zAgentEntry, type AgentEntry as ContractAgentEntry } from '@berry-agent/claw-contracts';
+// ============================================================
+// berry-claw — BFF-local config (thin)
+// ============================================================
+// berry-claw is a thin BFF over a8s. It owns NO agent/model state: agents,
+// providers, models, and tiers all live in a8s (agents via the control
+// plane; the LLM catalog via a8s's models-template, read/written through
+// @berry-agent/client). The only things genuinely local to this process are:
+//   - how it authenticates browser sessions (auth)
+//   - how it reaches a8s (a8s url + admin token, held server-side)
+//
+// Everything the old monolithic berry-claw stored here (providerInstances /
+// models / tiers / agents / safety) moved to a8s when agents moved there.
 
-/**
- * Current on-disk schema version for `~/.berry-claw/config.json`.
- * Anything else is rejected by normalizer. Bump this when the schema changes.
- */
-export const CONFIG_SCHEMA_VERSION = 2 as const;
+export const CONFIG_SCHEMA_VERSION = 3 as const;
 export type ConfigSchemaVersion = typeof CONFIG_SCHEMA_VERSION;
-
-/** Layer 1 — stored form (on disk). Same shape as ProviderInstance. */
-export type ProviderInstanceEntry = ProviderInstance;
-
-/** Layer 2 — stored form. */
-export type ModelEntry = ModelBinding;
-
-/** Layer 3 — partial by design; setup wizard enforces completeness. */
-export type TierEntry = Partial<Record<TierId, string>>;
-
-/**
- * Product-owned agent registry row. The field contract lives in
- * @berry-agent/claw-contracts so config files, REST handlers, and client code
- * cannot drift into parallel AgentEntry shapes.
- */
-export type AgentEntry = ContractAgentEntry;
 
 export interface AppConfig {
   schemaVersion: ConfigSchemaVersion;
-  providerInstances: Record<string, ProviderInstanceEntry>;
-  models: Record<string, ModelEntry>;
-  tiers: TierEntry;
-  agents: Record<string, AgentEntry>;
-  defaultAgent: string;
-  /**
-   * Global (app-wide) fallback safety level. Used when neither the agent
-   * entry nor SDK project safety specifies one. Undefined
-   * means "no opinion" -> the resolver falls through to its 'default' floor.
-   */
-  safetyLevel?: SafetyLevel;
-  /** Global LLM classifier used by safety level `auto`. */
-  safetyClassifier?: {
-    /** Model ref, e.g. tier:fast or a Layer-2 model id. */
-    model?: string;
-    /** false disables the classifier and falls back to HITL approval. */
-    enabled?: boolean;
-    /** Skip classifier Stage 2 reasoning for lower latency. */
-    skipStage2?: boolean;
-  };
   auth: {
     sessionTtlMs: number;
     challengeTtlMs: number;
     allowAnonymous: boolean;
   };
   /**
-   * a8s control-plane connection. berry-claw is a thin BFF: agent engines
-   * run on a8s/workers, never in this process. The BFF reaches a8s only
-   * through @berry-agent/client over HTTP+token. `token` is the
-   * admin/bootstrap secret the BFF holds server-side and never sends to
-   * the browser.
-   *
-   * Optional during the migration to the thin-BFF architecture: when
-   * absent the legacy in-process engine path is still used. Once the BFF
-   * cut-over lands this becomes required.
+   * a8s control-plane connection. The BFF reaches a8s only through
+   * @berry-agent/client over HTTP+token. `token` is the admin/bootstrap
+   * secret the BFF holds server-side and never sends to the browser.
+   * Falls back to env BERRY_A8S_URL / BERRY_A8S_ADMIN_TOKEN when absent.
    */
   a8s?: {
     url: string;
@@ -78,11 +38,6 @@ const DEFAULT_CHALLENGE_TTL_MS = 300_000;
 
 export const EMPTY_CONFIG: AppConfig = {
   schemaVersion: CONFIG_SCHEMA_VERSION,
-  providerInstances: {},
-  models: {},
-  tiers: {},
-  agents: {},
-  defaultAgent: '',
   auth: {
     sessionTtlMs: DEFAULT_SESSION_TTL_MS,
     challengeTtlMs: DEFAULT_CHALLENGE_TTL_MS,
@@ -93,67 +48,23 @@ export const EMPTY_CONFIG: AppConfig = {
 /**
  * Type-normalize a parsed config blob. We don't migrate from older schemas:
  * if the file shape is wrong, throw so the user can fix or wipe the file.
+ * (v2 → v3 dropped all agent/model state; a stale v2 file is rejected.)
  */
 export function normalizeConfig(raw: Partial<AppConfig>): AppConfig {
   if (raw.schemaVersion !== CONFIG_SCHEMA_VERSION) {
     throw new Error(
       `Unsupported config schemaVersion: ${raw.schemaVersion}. `
-      + `Expected ${CONFIG_SCHEMA_VERSION}. Delete ~/.berry-claw/config.json to reset.`,
+      + `Expected ${CONFIG_SCHEMA_VERSION}. Delete ~/.berry-claw/config.json to reset `
+      + `(agents/models/providers now live in a8s, not this file).`,
     );
   }
   return {
     schemaVersion: CONFIG_SCHEMA_VERSION,
-    providerInstances: { ...(raw.providerInstances ?? {}) },
-    models: normalizeModels(raw.models ?? {}),
-    tiers: { ...(raw.tiers ?? {}) },
-    agents: normalizeAgents(raw.agents ?? {}),
-    defaultAgent: typeof raw.defaultAgent === 'string' ? raw.defaultAgent : '',
-    safetyLevel: raw.safetyLevel,
-    safetyClassifier: normalizeSafetyClassifier(raw.safetyClassifier),
     auth: {
       sessionTtlMs: raw.auth?.sessionTtlMs ?? EMPTY_CONFIG.auth.sessionTtlMs,
       challengeTtlMs: raw.auth?.challengeTtlMs ?? EMPTY_CONFIG.auth.challengeTtlMs,
       allowAnonymous: raw.auth?.allowAnonymous ?? EMPTY_CONFIG.auth.allowAnonymous,
     },
+    ...(raw.a8s?.url ? { a8s: { url: raw.a8s.url, token: raw.a8s.token } } : {}),
   };
-}
-
-export function cleanAgentEntry(entry: unknown): AgentEntry {
-  const parsed = zAgentEntry.parse(entry);
-  return Object.fromEntries(
-    Object.entries(parsed).filter(([, value]) => value !== undefined),
-  ) as AgentEntry;
-}
-
-function normalizeSafetyClassifier(raw: Partial<AppConfig>['safetyClassifier']): AppConfig['safetyClassifier'] | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  return {
-    ...(typeof raw.model === 'string' && raw.model.trim() ? { model: raw.model.trim() } : {}),
-    ...(typeof raw.enabled === 'boolean' ? { enabled: raw.enabled } : {}),
-    ...(typeof raw.skipStage2 === 'boolean' ? { skipStage2: raw.skipStage2 } : {}),
-  };
-}
-
-function normalizeModels(rawModels: Record<string, ModelEntry>): Record<string, ModelEntry> {
-  return Object.fromEntries(
-    Object.entries(rawModels).map(([id, entry]) => {
-      const contextWindow = typeof entry.contextWindow === 'number'
-        && Number.isFinite(entry.contextWindow)
-        && entry.contextWindow >= 4_000
-        && entry.contextWindow <= 10_000_000
-        ? Math.floor(entry.contextWindow)
-        : undefined;
-      return [id, {
-        ...entry,
-        id,
-        ...(contextWindow ? { contextWindow } : {}),
-      }];
-    }),
-  );
-}
-
-function normalizeAgents(rawAgents: Record<string, unknown>): Record<string, AgentEntry> {
-  return Object.fromEntries(
-    Object.entries(rawAgents).map(([id, entry]) => [id, cleanAgentEntry(entry)]),
-  );
 }
