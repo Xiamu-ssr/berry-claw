@@ -68,28 +68,42 @@ export const zAgentHomeFact = zAgentHomeSnapshot;
 
 export const zProjectSharedPathsFact = zProjectSharedPaths;
 
+export const zHandSummaryFact = z.object({
+  id: z.string(),
+  kind: z.string(),
+  displayName: z.string().optional(),
+  capabilities: z.array(z.string()),
+});
+export type HandSummaryFact = z.infer<typeof zHandSummaryFact>;
+
+export const zSkillIndexFact = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+export type SkillIndexFact = z.infer<typeof zSkillIndexFact>;
+
+/**
+ * AgentFact — the product view of an agent, derived entirely from a8s
+ * (listAgents + agentSnapshot). berry-claw is a thin BFF: it stores no agent
+ * config, so a fact carries only what a8s reports. 4+1-native: an agent is a
+ * set of Hands (with skills as knowledge), not a flat tool allowlist.
+ */
 export const zAgentFact = z.object({
   id: z.string(),
+  /** Display name — product metadata stored in a8s's opaque `entry`. */
   name: z.string(),
   model: z.string(),
   provider: z.string(),
-  workspace: z.string(),
-  home: zAgentHomeFact,
-  project: z.string().optional(),
-  projectPaths: zProjectSharedPathsFact.optional(),
   status: zAgentStatus,
   statusDetail: z.string().optional(),
+  /** Which worker the agent is assigned to; null when unscheduled. */
+  workerId: z.string().nullable(),
+  /** True once the agent is mounted on a worker (has a live runtime). */
   instantiated: z.boolean(),
-  tools: z.array(z.string()).optional(),
-  disabledTools: z.array(z.string()).optional(),
-  skillDirs: z.array(z.string()).optional(),
-  disabledSkills: z.array(z.string()).optional(),
-  enabledSkills: z.array(z.string()).optional(),
-  reasoningEffort: zReasoningEffort.optional(),
-  promptPack: z.string().optional(),
-  safetyLevel: zSafetyLevel.optional(),
-  effectiveSafetyLevel: zSafetyLevel,
-  mcp: z.array(zMCPServerFact).optional(),
+  /** Hands the agent has mounted (4+1-native; from snapshot). */
+  hands: z.array(zHandSummaryFact).optional(),
+  /** Loaded skill index (name + description; from snapshot). */
+  skills: z.array(zSkillIndexFact).optional(),
 });
 export type AgentFact = z.infer<typeof zAgentFact>;
 

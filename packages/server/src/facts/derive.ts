@@ -1,170 +1,105 @@
 /**
- * Fact derivers — pure functions that turn SDK + config state into Facts.
+ * Fact derivers — turn a8s client responses into product Facts.
  *
- * All derivation logic lives here. AgentManager and server routes stay
- * dumb: they mutate state, then call emit*() which calls the matching
- * deriver to build a fresh snapshot.
- *
- * Every deriver returns `null` when the entity doesn't exist — that
- * signal is used by the WS layer to tell the UI "this id was deleted".
+ * berry-claw is a thin BFF: a8s owns agents/sessions, so facts are derived
+ * from what the client reports (listAgents + agentSnapshot + session views),
+ * not from any local engine state. Each deriver returns the fact shape the
+ * frontend FactStore merges by id.
  */
 
-import type { Team } from '@berry-agent/team';
-import { projectSharedPaths } from '@berry-agent/core';
-import type { AgentChatMessage, AgentSessionView } from '@berry-agent/core';
-import type { AgentManager } from '../engine/agent-manager.js';
-import type { AgentFact, TeamFact, SessionFact, SystemFact, MCPServerFact } from '@berry-agent/claw-contracts';
-import { SYSTEM_FACT_ID } from '@berry-agent/claw-contracts';
-import { listInstalledSkillsSync } from '../engine/skill-market.js';
+import type {
+  A8sClient,
+  AgentSnapshotResponse,
+} from '@berry-agent/client';
+import type { AgentFact, AgentStatus, SessionFact } from '@berry-agent/claw-contracts';
+
+/** Map an a8s snapshot status string onto the product AgentStatus enum. */
+function asAgentStatus(status: string | undefined): AgentStatus {
+  const known: AgentStatus[] = [
+    'idle', 'thinking', 'tool_executing', 'compacting', 'memory_flushing',
+    'delegating', 'sleeping', 'tool_use', 'paused', 'error',
+  ];
+  return (known as string[]).includes(status ?? '') ? (status as AgentStatus) : 'idle';
+}
 
 /**
- * Build an AgentFact by combining:
- *   - persisted config (entry)
- *   - live Agent instance runtime state (if instantiated)
- *   - AgentManager active-agent bookkeeping
+ * Derive an AgentFact for one agent. `name` comes from a8s's opaque product
+ * `entry` (display metadata); the rest comes from the live snapshot when the
+ * agent is mounted. When the agent is registered but not yet mounted on a
+ * worker, the snapshot call fails — we return a minimal fact (not-instantiated).
  */
-export function deriveAgentFact(
-  manager: AgentManager,
+export async function deriveAgentFact(
+  client: A8sClient,
   agentId: string,
-): AgentFact | null {
-  const entry = manager.config.getAgent(agentId);
-  if (!entry) return null;
-
-  const instance = manager.getInstance(agentId);
-  const status = manager.getAgentStatus(agentId);
-  const provider = instance?.runtime.currentProvider;
-  const workspace = entry.workspace ?? manager.config.agentWorkspace(agentId);
-  const home = manager.config.agentHomeFor(workspace).toSnapshot();
-  const projectPaths = entry.project ? projectSharedPaths(entry.project) : undefined;
-
-  // Per-agent MCP snapshot. We read the full MCPManager status and pluck
-  // the slot for this agent — keeping the deriver the only place that
-  // reshapes MCPManager.getStatus() into fact form. Undefined (not empty
-  // array) when the agent has no registered per-agent servers yet.
-  const mcpStatus = manager.mcpManager.getStatus();
-  const perAgent = mcpStatus.perAgent[agentId];
-  const mcp: MCPServerFact[] | undefined = perAgent && perAgent.length > 0
-    ? perAgent.map((s) => ({
-        name: s.name,
-        connected: s.connected,
-        toolCount: s.toolCount,
-        status: s.status,
-        lastError: s.lastError,
-        lastStartedAt: s.lastStartedAt,
-      }))
-    : undefined;
-
+  opts: { name?: string; workerId?: string | null } = {},
+): Promise<AgentFact> {
+  let snap: AgentSnapshotResponse | undefined;
+  try {
+    snap = await client.agentSnapshot(agentId);
+  } catch {
+    snap = undefined; // not mounted / not reachable → minimal fact
+  }
   return {
     id: agentId,
-    name: entry.name,
-    model: entry.model,
-    provider: provider?.type ?? 'unknown',
-    workspace,
-    home,
-    project: entry.project,
-    projectPaths,
-    status: (status?.status as AgentFact['status']) ?? 'idle',
-    statusDetail: status?.detail,
-    instantiated: !!instance,
-    tools: entry.tools,
-    disabledTools: entry.disabledTools,
-    skillDirs: entry.skillDirs,
-    disabledSkills: entry.disabledSkills,
-    enabledSkills: entry.enabledSkills,
-    reasoningEffort: entry.reasoningEffort,
-    promptPack: entry.promptPack,
-    safetyLevel: entry.safetyLevel,
-    effectiveSafetyLevel: manager.resolveSafetyFor(agentId),
-    mcp,
+    name: opts.name ?? agentId,
+    model: snap?.model ?? '',
+    provider: snap?.provider ?? 'unknown',
+    status: asAgentStatus(snap?.status),
+    statusDetail: snap?.statusDetail,
+    workerId: opts.workerId ?? null,
+    instantiated: !!snap,
+    hands: snap?.hands,
+    skills: snap?.skills,
   };
+}
+
+/** The product-relevant slice of a session view (wire shape from a8s). */
+export interface SessionViewLike {
+  id: string;
+  title?: string;
+  agentId?: string;
+  status: string;
+  lastActiveAt?: number;
+  messages: Array<Record<string, unknown>>;
+}
+
+const SESSION_STATUSES = ['idle', 'running', 'interrupted'] as const;
+type SessionStatus = (typeof SESSION_STATUSES)[number];
+function asSessionStatus(s: string): SessionStatus {
+  return (SESSION_STATUSES as readonly string[]).includes(s) ? (s as SessionStatus) : 'idle';
 }
 
 /**
- * Build the singleton {@link SystemFact}. Today this covers shared MCP
- * servers; more global infra state can accrete here without forcing a
- * new channel.
+ * Derive a SessionFact from an a8s session view. `messages` is opaque on the
+ * wire but is the SDK's rendered timeline; we read the few fields we summarize
+ * (role for turn count, usage for tokens, compaction markers) defensively.
  */
-export function deriveSystemFact(manager: AgentManager): SystemFact {
-  const status = manager.mcpManager.getStatus();
-  const installedSkills = listInstalledSkillsSync(manager.config.globalSkillsDir());
-  return {
-    id: SYSTEM_FACT_ID,
-    mcpShared: status.shared.map((s) => ({
-      name: s.name,
-      connected: s.connected,
-      toolCount: s.toolCount,
-      status: s.status,
-      lastError: s.lastError,
-      lastStartedAt: s.lastStartedAt,
-    })),
-    installedSkills,
-  };
-}
-
-/**
- * Build a TeamFact from a live Team instance. We accept the message count
- * as an optional override so callers can pass a cached count instead of
- * reading the SDK team message store on every emission.
- */
-export async function deriveTeamFact(
-  team: Team,
-  opts: { messageCount?: number } = {},
-): Promise<TeamFact> {
-  const state = team.state;
-  const worklist = await team.worklist.list();
-  const messageCount = opts.messageCount ?? (await team.readMessages()).length;
-
-  return {
-    id: state.leaderId,
-    name: state.name,
-    project: state.project,
-    projectPaths: projectSharedPaths(state.project),
-    leaderId: state.leaderId,
-    teammates: state.teammates.map((t) => ({
-      agentId: t.id,
-      role: t.role,
-    })),
-    worklist,
-    messageCount,
-  };
-}
-
-/** Build a SessionFact from the SDK-owned session view. */
-export function deriveSessionFact(view: AgentSessionView): SessionFact {
-  const usage = sumMessageTokens(view.messages);
-  const compactionCount = view.messages.reduce((count, message) => {
-    const markers = message.timeline?.filter((item) =>
-      item.type === 'event' && item.event.kind === 'compaction',
-    ).length ?? 0;
-    return count + markers;
-  }, 0);
-
+export function deriveSessionFact(view: SessionViewLike): SessionFact {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let turnCount = 0;
+  let compactionCount = 0;
+  for (const m of view.messages) {
+    if (m.role === 'user') turnCount++;
+    const usage = m.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+    if (usage) {
+      inputTokens += usage.inputTokens ?? 0;
+      outputTokens += usage.outputTokens ?? 0;
+    }
+    const timeline = m.timeline as Array<{ type?: string; event?: { kind?: string } }> | undefined;
+    compactionCount += timeline?.filter((t) => t.type === 'event' && t.event?.kind === 'compaction').length ?? 0;
+  }
+  const status = asSessionStatus(view.status);
   return {
     id: view.id,
     agentId: view.agentId ?? '',
     title: view.title,
-    status: view.status,
+    status,
     messageCount: view.messages.length,
-    turnCount: view.messages.filter((message) => message.role === 'user').length,
-    tokensUsed: usage.inputTokens + usage.outputTokens,
+    turnCount,
+    tokensUsed: inputTokens + outputTokens,
     compactionCount,
     lastActivityAt: view.lastActiveAt,
-    crashRecovered: view.status === 'interrupted' ? true : undefined,
+    crashRecovered: status === 'interrupted' ? true : undefined,
   };
-}
-
-function sumMessageTokens(messages: AgentChatMessage[]): { inputTokens: number; outputTokens: number } {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  for (const message of messages) {
-    if (message.usage) {
-      inputTokens += message.usage.inputTokens;
-      outputTokens += message.usage.outputTokens;
-    }
-    for (const inference of message.inferences ?? []) {
-      inputTokens += inference.inputTokens;
-      outputTokens += inference.outputTokens;
-    }
-  }
-  return { inputTokens, outputTokens };
 }
