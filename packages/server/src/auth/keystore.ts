@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'n
 import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
-import type { InstanceIdentity } from '@berry-agent/claw-contracts';
+import type { InstanceIdentity } from '@berry-agent/claw-contracts/auth';
 
 export interface KeyStorePaths {
   instanceJson: string;

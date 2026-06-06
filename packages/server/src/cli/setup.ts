@@ -10,12 +10,12 @@
  * This command must NOT expose internal package names (playwright-core, npm
  * install, etc.) to the end user. Those are implementation details.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { checkBrowserRuntime, installBrowserRuntime } from './browser-runtime.js';
 import { prompt, closePrompt } from './prompt.js';
-import { CONFIG_SCHEMA_VERSION } from '../engine/config-manager.js';
+import { ClawConfig } from '../engine/claw-config.js';
 
 const APP_DIR = process.env.BERRY_CLAW_HOME ?? join(homedir(), '.berry-claw');
 
@@ -23,33 +23,17 @@ export async function runSetup(): Promise<void> {
   console.log('🍓 berry-claw setup\n');
 
   // 1. Data directory
-  const agentsDir = join(APP_DIR, 'agents');
   if (!existsSync(APP_DIR)) mkdirSync(APP_DIR, { recursive: true });
-  if (!existsSync(agentsDir)) mkdirSync(agentsDir, { recursive: true });
   console.log(`✓ Data directory ready: ${APP_DIR}`);
 
-  // 2. Seed config stub if missing (empty, user fills via Web UI / API)
+  // 2. Seed config if missing. ClawConfig writes a default (auth + a8s)
+  //    config.json on first construction. Agents/models live on a8s now,
+  //    so there is nothing agent-shaped to seed here.
   const configPath = join(APP_DIR, 'config.json');
-  if (!existsSync(configPath)) {
-    writeFileSync(
-      configPath,
-      JSON.stringify(
-        {
-          schemaVersion: CONFIG_SCHEMA_VERSION,
-          providerInstances: {},
-          models: {},
-          tiers: {},
-          agents: {},
-          defaultAgent: '',
-        },
-        null,
-        2,
-      ) + '\n',
-    );
-    console.log('✓ Created default config.json');
-  } else {
-    console.log('✓ Config already present, left untouched');
-  }
+  const hadConfig = existsSync(configPath);
+  // eslint-disable-next-line no-new
+  new ClawConfig({ appDir: APP_DIR });
+  console.log(hadConfig ? '✓ Config already present, left untouched' : '✓ Created default config.json');
 
   // 3. Browser runtime
   const browser = await checkBrowserRuntime();

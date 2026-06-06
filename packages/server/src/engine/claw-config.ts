@@ -15,16 +15,57 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { ClawHome } from './claw-home.js';
-import {
-  EMPTY_CONFIG,
-  normalizeConfig,
-  type AppConfig,
-} from './config-schema.js';
-export {
-  CONFIG_SCHEMA_VERSION,
-  type AppConfig,
-  type ConfigSchemaVersion,
-} from './config-schema.js';
+// ---- config schema (auth + a8s connection only; agents/models live on a8s) ----
+
+export const CONFIG_SCHEMA_VERSION = 3 as const;
+export type ConfigSchemaVersion = typeof CONFIG_SCHEMA_VERSION;
+
+export interface AppConfig {
+  schemaVersion: ConfigSchemaVersion;
+  auth: {
+    sessionTtlMs: number;
+    challengeTtlMs: number;
+    allowAnonymous: boolean;
+  };
+  /**
+   * a8s control-plane connection. The BFF reaches a8s only through
+   * @berry-agent/client over HTTP+token. `token` is the product token the
+   * console holds server-side. Falls back to env BERRY_A8S_URL /
+   * BERRY_A8S_ADMIN_TOKEN when absent.
+   */
+  a8s?: { url: string; token?: string };
+}
+
+const DEFAULT_SESSION_TTL_MS = 86_400_000;
+const DEFAULT_CHALLENGE_TTL_MS = 300_000;
+
+const EMPTY_CONFIG: AppConfig = {
+  schemaVersion: CONFIG_SCHEMA_VERSION,
+  auth: {
+    sessionTtlMs: DEFAULT_SESSION_TTL_MS,
+    challengeTtlMs: DEFAULT_CHALLENGE_TTL_MS,
+    allowAnonymous: false,
+  },
+};
+
+/** Type-normalize a parsed config blob. v2 (agent/model state) is rejected. */
+function normalizeConfig(raw: Partial<AppConfig>): AppConfig {
+  if (raw.schemaVersion !== CONFIG_SCHEMA_VERSION) {
+    throw new Error(
+      `Unsupported config schemaVersion: ${raw.schemaVersion}. Expected ${CONFIG_SCHEMA_VERSION}. `
+      + `Delete ~/.berry-claw/config.json to reset (agents/models now live on a8s).`,
+    );
+  }
+  return {
+    schemaVersion: CONFIG_SCHEMA_VERSION,
+    auth: {
+      sessionTtlMs: raw.auth?.sessionTtlMs ?? EMPTY_CONFIG.auth.sessionTtlMs,
+      challengeTtlMs: raw.auth?.challengeTtlMs ?? EMPTY_CONFIG.auth.challengeTtlMs,
+      allowAnonymous: raw.auth?.allowAnonymous ?? EMPTY_CONFIG.auth.allowAnonymous,
+    },
+    ...(raw.a8s?.url ? { a8s: { url: raw.a8s.url, token: raw.a8s.token } } : {}),
+  };
+}
 
 const DEFAULT_APP_DIR = process.env.BERRY_CLAW_HOME ?? join(homedir(), '.berry-claw');
 
@@ -74,12 +115,4 @@ export class ClawConfig {
       token: this.config.a8s?.token ?? process.env.BERRY_A8S_ADMIN_TOKEN,
     };
   }
-
-  // ----- local product directories (not agent state) -----
-  /** Global skill pool for skills installed from a market (`~/.berry-claw/skills/`). */
-  globalSkillsDir(): string { return this.home.globalSkillsDir(); }
-  /** Built-in skill pool shipped in the package (`<pkg>/skills/builtin/`). */
-  builtinSkillsDir(): string { return this.home.builtinSkillsDir(); }
-  /** Product-managed SDK PromptPack directory (`~/.berry-claw/prompt-packs`). */
-  promptPacksDir(): string { return this.home.promptPacksDir(); }
 }

@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "@berry-agent/core": "^0.5.0-alpha.1",
+    "@berry-agent/mcp": "file:../../../berry-agent-sdk/packages/mcp",
     "@berry-agent/models": "^0.5.0-alpha.1",
     "@berry-agent/safe": "^0.5.0-alpha.1",
     "@berry-agent/team": "^0.5.0-alpha.1",

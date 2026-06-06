@@ -1,9 +1,9 @@
 import { createKeyStore, generateIdentity, loadIdentity, privateKeyPem, signNonce, verifyIdentity } from '../auth/keystore.js';
-import { ConfigManager } from '../engine/config-manager.js';
+import { ClawConfig } from '../engine/claw-config.js';
 
 export async function runKey(args: string[]): Promise<boolean> {
   const [cmd, ...rest] = args;
-  const config = new ConfigManager();
+  const config = new ClawConfig();
   const store = createKeyStore(config.appDir);
 
   switch (cmd) {

@@ -4,7 +4,7 @@ import { loadIdentity, type KeyStore } from '../auth/keystore.js';
 import {
   zAuthChallengeRequest,
   zAuthVerifyRequest,
-} from '@berry-agent/claw-contracts';
+} from '@berry-agent/claw-contracts/auth';
 
 export function registerAuthRoutes(app: Express, authStore: AuthStore, keyStore: KeyStore): void {
   app.post('/api/auth/challenge', (req, res) => {

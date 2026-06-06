@@ -22,7 +22,7 @@ const __dirname = dirname(__filename);
 const pkgPath = resolve(__dirname, '..', 'package.json');
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { name: string; version: string };
 
-type Command = 'start' | 'setup' | 'doctor' | 'install' | 'status' | 'restart' | 'config' | 'key' | 'version' | 'help';
+type Command = 'start' | 'setup' | 'doctor' | 'install' | 'key' | 'version' | 'help';
 
 function parseArgs(argv: string[]): { cmd: Command; rest: string[] } {
   const [first, ...rest] = argv;
@@ -34,9 +34,6 @@ function parseArgs(argv: string[]): { cmd: Command; rest: string[] } {
     case 'setup': return { cmd: 'setup', rest };
     case 'doctor': return { cmd: 'doctor', rest };
     case 'install': return { cmd: 'install', rest };
-    case 'status': return { cmd: 'status', rest };
-    case 'restart': return { cmd: 'restart', rest };
-    case 'config': return { cmd: 'config', rest };
     case 'key': return { cmd: 'key', rest };
     case 'version':
     case '--version':
@@ -64,10 +61,6 @@ Commands:
   setup                     First-time setup wizard
   doctor                    Environment self-check
   install browser           Install browser runtime (Playwright Chromium)
-  status                    Show server health summary
-  restart                   Request graceful server restart
-  config get <scope> [key]  Read configuration (provider|model|tier|agent)
-  config set <scope> <key> <value>  Write configuration
   key gen|reset|show|verify Manage instance auth keys
   version                   Print version
   help                      Show this help
@@ -117,24 +110,6 @@ async function main(): Promise<void> {
       const { runInstall } = await import('./cli/install.js');
       const ok = await runInstall(rest);
       process.exitCode = ok ? 0 : 1;
-      return;
-    }
-
-    case 'status': {
-      const { runStatus } = await import('./cli/status.js');
-      await runStatus();
-      return;
-    }
-
-    case 'restart': {
-      const { runRestart } = await import('./cli/restart.js');
-      await runRestart(rest);
-      return;
-    }
-
-    case 'config': {
-      const { runConfig } = await import('./cli/config-cmd.js');
-      await runConfig(rest);
       return;
     }
 
