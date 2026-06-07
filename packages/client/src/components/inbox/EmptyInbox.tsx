@@ -1,6 +1,6 @@
 import { Inbox } from 'lucide-react';
 import type { AgentFact } from '@berry-agent/claw-contracts';
-import { lastPathPart, modelShortName } from '../../utils/format';
+import { modelShortName } from '../../utils/format';
 import StatusDot from '../StatusDot';
 
 export default function EmptyInbox({ agent }: { agent?: AgentFact }) {
@@ -19,7 +19,7 @@ export default function EmptyInbox({ agent }: { agent?: AgentFact }) {
             {agent?.model ? modelShortName(agent.model) : 'No model'}
           </span>
           <span className="rounded-full border border-white/[0.04] bg-white/[0.02] px-3 py-1.5">
-            {agent?.project ? lastPathPart(agent.project) : 'No project'}
+            {agent?.provider ?? 'No provider'}
           </span>
           <span className="flex items-center gap-1.5 rounded-full border border-white/[0.04] bg-white/[0.02] px-3 py-1.5">
             <StatusDot status={agent?.status} /> {agent?.status ?? 'idle'}

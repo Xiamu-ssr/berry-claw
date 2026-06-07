@@ -111,8 +111,8 @@ export default function SkillMarketPage() {
   const agentUsingSkill = useMemo(() => {
     const map = new Map<string, number>();
     for (const agent of agents) {
-      for (const skill of agent.enabledSkills ?? []) {
-        map.set(skill, (map.get(skill) ?? 0) + 1);
+      for (const skill of agent.skills ?? []) {
+        map.set(skill.name, (map.get(skill.name) ?? 0) + 1);
       }
     }
     return map;

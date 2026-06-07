@@ -14,7 +14,7 @@ import {
 import type { AgentFact, InstalledSkill, MCPServerFact } from '@berry-agent/claw-contracts';
 import { IconButton, Pill, PrimaryButton, SecondaryButton, StatusDot } from '../workbench';
 import { PixelPortrait } from './AgentPortrait';
-import { agentAvatar, lastPathPart, statusTone } from './helpers';
+import { agentAvatar, statusTone } from './helpers';
 import type { DetailTab, InspectRuntime } from './types';
 
 export function AgentHero({
@@ -43,10 +43,11 @@ export function AgentHero({
   onDelete: () => void;
 }) {
   const avatar = useMemo(() => agentAvatar(agent, 112), [agent]);
-  const enabledSkillCount = agent.enabledSkills?.length ?? 0;
-  const mcpServers = [...sharedMcp, ...(agent.mcp ?? [])];
+  const skillCount = agent.skills?.length ?? 0;
+  const handCount = agent.hands?.length ?? 0;
+  const mcpServers = sharedMcp;
   const mcpCount = mcpServers.filter((server) => server.connected).length;
-  const toolCount = runtime?.tools?.length ?? agent.tools?.length ?? 0;
+  const toolCount = runtime?.tools?.length ?? 0;
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#20242a]/75">
@@ -66,17 +67,19 @@ export function AgentHero({
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
             <span className="font-mono">{agent.model}</span>
-            <span>{agent.project ? lastPathPart(agent.project) : '未绑定项目'}</span>
-            <span>{agent.effectiveSafetyLevel}</span>
+            <span>{agent.provider}</span>
+            <span>{handCount ? `${handCount} hands` : 'no hands'}</span>
             <span>{loading ? 'inspecting...' : agent.instantiated ? 'runtime ready' : 'cold'}</span>
           </div>
-          <div className="mt-2 truncate font-mono text-[11px] text-zinc-600">{agent.workspace}</div>
+          <div className="mt-2 truncate font-mono text-[11px] text-zinc-600">
+            {agent.workerId ? `worker ${agent.workerId}` : 'unscheduled'}
+          </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
             <AbilitySlot
               icon={<Brain size={16} />}
               label="Context"
-              value={agent.project ? 'Project' : 'Solo'}
-              detail={agent.project ? lastPathPart(agent.project) : 'workspace only'}
+              value={agent.provider}
+              detail={agent.model}
               active={activeModule === 'context'}
               onClick={() => onModuleChange('context')}
             />
@@ -84,7 +87,7 @@ export function AgentHero({
               icon={<FileText size={16} />}
               label="Prompt"
               value={`${runtime?.promptBlocks?.length ?? runtime?.systemPrompt?.length ?? 0} blocks`}
-              detail={agent.promptPack ?? 'berry-default-zh'}
+              detail="system prompt"
               active={activeModule === 'prompt'}
               onClick={() => onModuleChange('prompt')}
             />
@@ -99,8 +102,8 @@ export function AgentHero({
             <AbilitySlot
               icon={<Sparkles size={16} />}
               label="Skills"
-              value={`${enabledSkillCount}/${systemSkills.length}`}
-              detail="enabled/global"
+              value={`${skillCount}/${systemSkills.length}`}
+              detail="mounted/global"
               active={activeModule === 'skills'}
               onClick={() => onModuleChange('skills')}
             />
@@ -123,7 +126,7 @@ export function AgentHero({
             <AbilitySlot
               icon={<ShieldCheck size={16} />}
               label="Safety"
-              value={agent.effectiveSafetyLevel}
+              value="—"
               detail="policy"
               active={activeModule === 'safety'}
               onClick={() => onModuleChange('safety')}

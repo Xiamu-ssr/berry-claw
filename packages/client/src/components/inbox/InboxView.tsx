@@ -290,7 +290,7 @@ export default function InboxView({
             model={selectedAgent?.model}
             modelOptions={modelOptions}
             onModelChange={onModelChange}
-            reasoningEffort={selectedAgent?.reasoningEffort}
+            reasoningEffort={undefined}
             onReasoningEffortChange={onReasoningEffortChange}
             incomingAnnotation={incomingAnnotation}
           />

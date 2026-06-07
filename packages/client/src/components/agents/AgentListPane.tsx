@@ -3,7 +3,7 @@ import { Search } from 'lucide-react';
 import type { AgentFact } from '@berry-agent/claw-contracts';
 import { Pill, StatusDot, TextInput } from '../workbench';
 import { PixelPortrait } from './AgentPortrait';
-import { agentAvatar, lastPathPart, modelShortName } from './helpers';
+import { agentAvatar, modelShortName } from './helpers';
 
 export function AgentListPane({
   agents,
@@ -88,8 +88,8 @@ function AgentListItem({
             <span className="text-zinc-700">/</span>
             <span className="truncate text-[11px] text-zinc-600">{agent.id}</span>
           </div>
-          <div className="mt-1 truncate text-[11px] text-zinc-600" title={agent.project ?? agent.workspace}>
-            {agent.project ? lastPathPart(agent.project) : 'workspace only'}
+          <div className="mt-1 truncate text-[11px] text-zinc-600" title={`${agent.provider} · ${agent.model}`}>
+            {agent.hands?.length ? `${agent.hands.length} hands` : agent.provider}
           </div>
         </div>
       </div>

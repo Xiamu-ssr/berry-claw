@@ -64,7 +64,7 @@ export default function TeamsPage() {
     return teamFacts.filter((team) => [team.name, team.leaderId, team.project].join(' ').toLowerCase().includes(q));
   }, [query, teamFacts]);
 
-  const eligibleLeaders = agentFacts.filter((agent) => !!agent.project);
+  const eligibleLeaders = agentFacts;
   const selectedTeam = teamFacts.find((team) => team.leaderId === selectedLeader) ?? teamFacts[0];
 
   return (
@@ -93,7 +93,7 @@ export default function TeamsPage() {
             <NewTeamPanel
               agents={eligibleLeaders.map((agent) => ({
                 id: agent.id,
-                entry: { name: agent.name, model: agent.model, project: agent.project },
+                entry: { name: agent.name, model: agent.model },
               }))}
               onClose={() => setCreating(false)}
               onCreated={(leaderId) => {

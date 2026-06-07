@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { AgentFact } from '@berry-agent/claw-contracts';
-import { lastPathPart, modelShortName } from '../../utils/format';
+import { modelShortName } from '../../utils/format';
 import StatusDot from '../StatusDot';
 
 interface AgentSwitcherProps {
@@ -35,7 +35,7 @@ export default function AgentSwitcher({
             </span>
           </span>
           <span className="mt-0.5 block truncate text-[11px] text-zinc-600">
-            {selectedAgent?.project || selectedAgent?.workspace || '未绑定工作区'}
+            {selectedAgent ? `${selectedAgent.provider} · ${modelShortName(selectedAgent.model)}` : '未绑定工作区'}
           </span>
         </span>
         <ChevronDown size={14} className={`shrink-0 text-zinc-600 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -69,7 +69,7 @@ export default function AgentSwitcher({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-zinc-100">{agent.name}</span>
                       <span className="mt-0.5 block truncate text-[11px] text-zinc-600">
-                        {modelShortName(agent.model)} / {agent.project ? lastPathPart(agent.project) : 'workspace only'}
+                        {modelShortName(agent.model)} / {agent.hands?.length ? `${agent.hands.length} hands` : agent.provider}
                       </span>
                     </span>
                     {active && (

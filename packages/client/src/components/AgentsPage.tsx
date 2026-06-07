@@ -95,8 +95,7 @@ export default function AgentsPage() {
         agent.name,
         agent.model,
         agent.provider,
-        agent.workspace,
-        agent.project ?? '',
+        agent.hands?.map((hand) => hand.kind).join(' ') ?? '',
       ].join(' ').toLowerCase();
       return !q || haystack.includes(q);
     });
@@ -121,12 +120,10 @@ export default function AgentsPage() {
     setEditorMode('edit');
     setDetailTab('context');
     setForm({
+      ...emptyAgentForm(),
       id: agent.id,
       name: agent.name,
       model: agent.model,
-      project: agent.project ?? '',
-      reasoningEffort: agent.reasoningEffort ?? '',
-      promptPack: agent.promptPack ?? 'berry-default-zh',
     });
   };
 
@@ -144,20 +141,7 @@ export default function AgentsPage() {
       return;
     }
 
-    const previous = editorMode === 'edit' ? selected : undefined;
     const body = {
-      ...(previous
-        ? {
-            workspace: previous.workspace,
-            tools: previous.tools,
-            disabledTools: previous.disabledTools,
-            skillDirs: previous.skillDirs,
-            disabledSkills: previous.disabledSkills,
-            enabledSkills: previous.enabledSkills,
-            promptPack: previous.promptPack,
-            safetyLevel: previous.safetyLevel,
-          }
-        : {}),
       name,
       model,
       project: form.project.trim() || undefined,

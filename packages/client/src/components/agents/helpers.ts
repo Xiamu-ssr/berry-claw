@@ -36,9 +36,9 @@ export function agentAvatar(agent: AgentFact, size: number) {
       agent.id,
       agent.name,
       agent.model,
-      agent.project ? `project ${lastPathPart(agent.project)}` : 'solo workspace',
-      agent.enabledSkills?.join(' ') ?? '',
-      agent.effectiveSafetyLevel,
+      agent.provider,
+      agent.hands?.map((hand) => hand.kind).join(' ') ?? '',
+      agent.skills?.map((skill) => skill.name).join(' ') ?? '',
     ].join(' '),
     { namespace: 'agent', size },
   );
