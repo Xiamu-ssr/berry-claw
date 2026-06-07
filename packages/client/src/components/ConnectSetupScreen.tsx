@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { KeyRound, Loader2, PlugZap, Server } from 'lucide-react';
+import { AlertCircle, CheckCircle2, KeyRound, Loader2, PlugZap, Server } from 'lucide-react';
 import {
   InvalidPemError,
   addInstance,
@@ -55,6 +55,35 @@ export function ConnectSetupScreen({
   const [pem, setPem] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Inline, pre-submit validation. These reuse the same sync parsers the
+  // submit path runs, so a green check here means the cheap checks will pass
+  // — the network round-trip is the only thing left. Empty input is neutral
+  // (no nag before the user has typed anything).
+  const endpointHint = useMemo<Hint>(() => {
+    if (!endpoint.trim()) return { kind: 'idle' };
+    try {
+      return { kind: 'ok', text: `→ ${normaliseEndpoint(endpoint)}` };
+    } catch (e) {
+      return { kind: 'warn', text: e instanceof Error ? e.message : String(e) };
+    }
+  }, [endpoint]);
+
+  const pemHint = useMemo<Hint>(() => {
+    if (!pem.trim()) return { kind: 'idle' };
+    try {
+      parseEd25519PrivateKeyPem(pem);
+      return { kind: 'ok', text: 'Valid Ed25519 private key' };
+    } catch (e) {
+      return {
+        kind: 'warn',
+        text:
+          e instanceof InvalidPemError
+            ? e.message
+            : `Invalid key: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  }, [pem]);
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -207,6 +236,7 @@ export function ConnectSetupScreen({
               disabled={busy}
               className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
             />
+            <HintLine hint={endpointHint} />
           </label>
 
           <label className="block">
@@ -222,6 +252,7 @@ export function ConnectSetupScreen({
               rows={7}
               className="w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 py-2 font-mono text-xs leading-5 text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
             />
+            <HintLine hint={pemHint} />
             <span className="mt-1.5 block text-[11px] leading-4 text-zinc-600">
               Stored locally in plain text until Electron safeStorage lands. Treat this
               machine as trusted.
@@ -257,6 +288,32 @@ export function ConnectSetupScreen({
         </div>
       </form>
     </div>
+  );
+}
+
+type Hint =
+  | { kind: 'idle' }
+  | { kind: 'ok'; text: string }
+  | { kind: 'warn'; text: string };
+
+/** Inline validation line under a field. Renders nothing while idle. */
+function HintLine({ hint }: { hint: Hint }) {
+  if (hint.kind === 'idle') return null;
+  const ok = hint.kind === 'ok';
+  return (
+    <span
+      className={
+        'mt-1.5 flex items-start gap-1.5 text-[11px] leading-4 ' +
+        (ok ? 'text-emerald-300/90' : 'text-amber-300/90')
+      }
+    >
+      {ok ? (
+        <CheckCircle2 size={12} className="mt-px flex-shrink-0" />
+      ) : (
+        <AlertCircle size={12} className="mt-px flex-shrink-0" />
+      )}
+      <span className="break-words">{hint.text}</span>
+    </span>
   );
 }
 
