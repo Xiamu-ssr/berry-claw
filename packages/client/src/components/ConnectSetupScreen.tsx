@@ -54,7 +54,13 @@ export function ConnectSetupScreen({
   const [endpoint, setEndpoint] = useState(defaultEndpoint);
   const [pem, setPem] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // The submit path is two distinct network legs (reach the server, then run
+  // a real challenge/verify). On a slow link a single "Verifying" spinner
+  // leaves the user guessing which leg is hanging — exactly when first-time
+  // connect already feels fragile. Track the phase so the button names the
+  // leg in flight; `busy` is derived for disabling controls.
+  const [phase, setPhase] = useState<Phase>('idle');
+  const busy = phase !== 'idle';
 
   // Inline, pre-submit validation. These reuse the same sync parsers the
   // submit path runs, so a green check here means the cheap checks will pass
@@ -120,14 +126,15 @@ export function ConnectSetupScreen({
       if (!ok) return;
     }
 
-    setBusy(true);
+    // Leg 1: reach the server and pin its identity.
+    setPhase('probing');
 
     // --- Probe server identity (public endpoint; also proves reachability).
     let identity: Awaited<ReturnType<typeof fetchServerIdentity>>;
     try {
       identity = await fetchServerIdentity(apiBase);
     } catch (e) {
-      setBusy(false);
+      setPhase('idle');
       setError(
         `Could not reach ${apiBase}: ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -143,7 +150,7 @@ export function ConnectSetupScreen({
         `This server is already known as "${fpDup.name}" (${fpDup.apiBase}). Replace it?`,
       );
       if (!ok) {
-        setBusy(false);
+        setPhase('idle');
         return;
       }
     }
@@ -165,11 +172,14 @@ export function ConnectSetupScreen({
       addedAt: Date.now(),
     };
 
+    // Leg 2: a real challenge/verify round-trip against the key.
+    setPhase('verifying');
+
     // --- Preflight challenge/verify. If this fails we do NOT persist.
     try {
       await ensureToken(candidate);
     } catch (e) {
-      setBusy(false);
+      setPhase('idle');
       setError(
         `Server rejected the key: ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -180,7 +190,7 @@ export function ConnectSetupScreen({
     // off to the real app.
     addInstance(candidate);
     setActive(candidate.id);
-    setBusy(false);
+    setPhase('idle');
   };
 
   return (
@@ -283,12 +293,27 @@ export function ConnectSetupScreen({
             className="inline-flex h-9 items-center gap-2 rounded-lg bg-sky-200 px-4 text-sm font-medium text-slate-950 shadow-[0_8px_24px_rgba(125,211,252,0.16)] transition-colors hover:bg-sky-100 disabled:opacity-40"
           >
             {busy && <Loader2 size={14} className="animate-spin" />}
-            {busy ? 'Verifying' : 'Connect'}
+            {phaseLabel(phase)}
           </button>
         </div>
       </form>
     </div>
   );
+}
+
+type Phase = 'idle' | 'probing' | 'verifying';
+
+// Name the leg in flight so a slow connect tells the user *what* is hanging:
+// reaching the server vs. proving the key. Idle just says "Connect".
+function phaseLabel(phase: Phase): string {
+  switch (phase) {
+    case 'probing':
+      return 'Reaching server';
+    case 'verifying':
+      return 'Verifying key';
+    default:
+      return 'Connect';
+  }
 }
 
 type Hint =
