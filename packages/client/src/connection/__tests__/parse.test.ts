@@ -35,6 +35,13 @@ describe('normaliseEndpoint', () => {
   it('throws on empty input', () => {
     expect(() => normaliseEndpoint('')).toThrow();
   });
+
+  it('rejects input with spaces instead of silently encoding it', () => {
+    // Regression: "not a url" used to be coerced into "http://not%20a%20url"
+    // and accepted, turning the inline hint green on an unresolvable host.
+    expect(() => normaliseEndpoint('not a url')).toThrow(/space/i);
+    expect(() => normaliseEndpoint('http://has space:3210')).toThrow(/space/i);
+  });
 });
 
 describe('wsBaseFromApiBase', () => {

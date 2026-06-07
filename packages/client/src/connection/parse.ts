@@ -25,9 +25,23 @@ export class InvalidPemError extends Error {
 export function normaliseEndpoint(raw: string): string {
   const trimmed = raw.trim().replace(/\/+$/, '');
   if (!trimmed) throw new Error('Endpoint is empty');
+  // Reject obviously-malformed input *before* `new URL` papers over it: a
+  // host with a space ("not a url") would otherwise be percent-encoded into a
+  // bogus hostname ("not%20a%20url") and silently accepted, so the inline
+  // hint goes green on garbage the server can never resolve.
+  if (/\s/.test(trimmed)) throw new Error('Endpoint must not contain spaces');
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
-  const url = new URL(withScheme);
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error('Endpoint is not a valid URL');
+  }
   if (!url.hostname) throw new Error('Endpoint has no hostname');
+  // A hostname that still carries a percent-escape (or stray escapes leaked in
+  // from the raw input) is not a real host — URL() only produces those when
+  // the input had illegal host characters. Reject rather than normalise junk.
+  if (url.hostname.includes('%')) throw new Error('Endpoint has an invalid hostname');
   // Drop path/query/hash — we only want scheme + host (+ port).
   return `${url.protocol}//${url.host}`;
 }
