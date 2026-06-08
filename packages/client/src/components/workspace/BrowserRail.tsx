@@ -8,6 +8,13 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { AnnotationBlock } from './types';
+import {
+  clampPointToCapture,
+  computeAnnotationCrop,
+  isUsableSelection,
+  normalizeBrowserUrl,
+  normalizeRect,
+} from './browserAnnotation';
 
 export function BrowserRail({
   onAnnotationCreated,
@@ -203,10 +210,10 @@ function AnnotationOverlay({
 }) {
   const rectFromEvent = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(capture.width, event.clientX - bounds.left)),
-      y: Math.max(0, Math.min(capture.height, event.clientY - bounds.top)),
-    };
+    return clampPointToCapture(
+      { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+      capture,
+    );
   };
 
   return (
@@ -257,7 +264,7 @@ function AnnotationOverlay({
           </button>
           <button
             type="button"
-            disabled={!selection || selection.width < 8 || selection.height < 8 || !annotationText.trim()}
+            disabled={!isUsableSelection(selection) || !annotationText.trim()}
             onClick={onCommit}
             className="rounded-lg bg-sky-300 px-3 py-1.5 text-xs font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -269,59 +276,35 @@ function AnnotationOverlay({
   );
 }
 
-function normalizeBrowserUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return 'about:blank';
-  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
-}
-
-function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number }) {
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-  return {
-    x,
-    y,
-    width: Math.abs(a.x - b.x),
-    height: Math.abs(a.y - b.y),
-  };
-}
-
 async function buildHighlightedAnnotationImage(
   capture: BerryDesktopBrowserCapture,
   selection: { x: number; y: number; width: number; height: number },
 ): Promise<AnnotationBlock['image']> {
   const source = await loadImage(`data:${capture.mediaType};base64,${capture.data}`);
-  const scaleX = source.naturalWidth / capture.width;
-  const scaleY = source.naturalHeight / capture.height;
-  const pad = 24;
-  const sx = Math.max(0, Math.floor(selection.x * scaleX) - pad);
-  const sy = Math.max(0, Math.floor(selection.y * scaleY) - pad);
-  const sw = Math.min(source.naturalWidth - sx, Math.ceil(selection.width * scaleX) + pad * 2);
-  const sh = Math.min(source.naturalHeight - sy, Math.ceil(selection.height * scaleY) + pad * 2);
+  const { crop, highlight } = computeAnnotationCrop(
+    selection,
+    { width: capture.width, height: capture.height },
+    { width: source.naturalWidth, height: source.naturalHeight },
+  );
 
   const canvas = document.createElement('canvas');
-  canvas.width = sw;
-  canvas.height = sh;
+  canvas.width = crop.width;
+  canvas.height = crop.height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas is unavailable');
-  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
-  const hx = selection.x * scaleX - sx;
-  const hy = selection.y * scaleY - sy;
-  const hw = selection.width * scaleX;
-  const hh = selection.height * scaleY;
+  ctx.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
   ctx.fillStyle = 'rgba(14, 165, 233, 0.18)';
-  ctx.fillRect(hx, hy, hw, hh);
+  ctx.fillRect(highlight.x, highlight.y, highlight.width, highlight.height);
   ctx.strokeStyle = '#38bdf8';
   ctx.lineWidth = 4;
-  ctx.strokeRect(hx + 2, hy + 2, Math.max(0, hw - 4), Math.max(0, hh - 4));
+  ctx.strokeRect(highlight.x + 2, highlight.y + 2, Math.max(0, highlight.width - 4), Math.max(0, highlight.height - 4));
 
   const dataUrl = canvas.toDataURL('image/png');
   return {
     data: dataUrl.slice(dataUrl.indexOf(',') + 1),
     mediaType: 'image/png',
-    width: sw,
-    height: sh,
+    width: crop.width,
+    height: crop.height,
   };
 }
 
