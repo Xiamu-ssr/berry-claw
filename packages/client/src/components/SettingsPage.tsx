@@ -1,45 +1,36 @@
 /**
- * SettingsPage — v2 schema (provider instances + models + tiers + agents).
+ * SettingsPage — the thin-shell settings surface.
  *
- * Tabs (top-level):
- *   1. Providers  — Layer 1: instances keyed by user-chosen id, one apiKey each
- *   2. Models     — Layer 2: model bindings aggregating providers (failover order)
- *   3. Tiers      — Layer 3: strong / balanced / fast shortcuts
- *   4. Credentials (tool secrets — unchanged)
+ * Model / provider / tier configuration moved to a8s (the control plane owns
+ * the 3-layer model binding now — see berry-claw AGENTS.md "the front-end does
+ * not hold model/provider config"). This page keeps only what berry-claw
+ * itself owns locally:
  *
- * Notes:
- *  - Agents are managed on their own page (AgentsPage). This page focuses
- *    purely on the 3-layer model binding surface.
- *  - apiKeys are shown masked (`sk-xxx…abc`). Leaving the field blank on
- *    update keeps the existing key (server semantics).
+ *   1. 后端实例 (Connections) — which a8s instance to talk to
+ *   2. 外观主题 (Theme)
+ *   3. 安全 (Safety) — three-tier approval mode
+ *   4. 工具凭证 (Credentials) — tool secrets
  */
 import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { API, apiFetch } from '../api/paths';
-import type {
-  ConfigProviderPreset as ProviderPreset,
-  ConfigResponse as ConfigPayload,
-} from '@berry-agent/claw-contracts';
+import type { ConfigResponse as ConfigPayload } from '@berry-agent/claw-contracts';
 import SettingsNav from './settings/SettingsNav';
 import type { SettingsTabId } from './settings/types';
 import {
   EmptyState,
   InlineSpinner,
-  Pill,
   PrimaryButton,
   WorkbenchPage,
 } from './workbench';
 
 const ConnectionsTab = lazy(() => import('./ConnectionsTab').then(mod => ({ default: mod.ConnectionsTab })));
 const CredentialsTab = lazy(() => import('./settings/CredentialsTab'));
-const ModelsTab = lazy(() => import('./settings/ModelsTab'));
-const ProvidersTab = lazy(() => import('./settings/ProvidersTab'));
 const SafetyTab = lazy(() => import('./settings/SafetyTab'));
 const ThemeTab = lazy(() => import('./settings/ThemeTab'));
-const TiersTab = lazy(() => import('./settings/TiersTab'));
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<SettingsTabId>('providers');
+  const [tab, setTab] = useState<SettingsTabId>('connections');
 
   useEffect(() => {
     const handler = () => setTab('connections');
@@ -48,15 +39,10 @@ export default function SettingsPage() {
   }, []);
 
   const [config, setConfig] = useState<ConfigPayload | null>(null);
-  const [presets, setPresets] = useState<ProviderPreset[]>([]);
 
   const refresh = useCallback(async () => {
-    const [cfg, presetRes] = await Promise.all([
-      apiFetch(API.config).then(r => r.json()),
-      apiFetch(API.configPresets).then(r => r.json()),
-    ]);
+    const cfg = await apiFetch(API.config).then(r => r.json());
     setConfig(cfg);
-    setPresets(presetRes.presets ?? []);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -65,7 +51,7 @@ export default function SettingsPage() {
     <WorkbenchPage
       eyebrow="Config"
       title="设置"
-      description="连接后端实例，维护 SDK 级模型配置和工具凭证。Agent、Skill、MCP 各有独立栏目。"
+      description="连接后端实例、外观、安全策略与工具凭证。模型/供应商/档位的配置已上移到 a8s 控制台。"
       actions={
         <PrimaryButton onClick={refresh}>
           <RefreshCw size={14} />
@@ -82,12 +68,9 @@ export default function SettingsPage() {
           <div className="space-y-4 p-5 pb-20">
             {tab === 'connections' && <ConnectionsTab />}
             {tab === 'theme' && <ThemeTab />}
-            {tab === 'providers' && config && <ProvidersTab config={config} presets={presets} onChange={refresh} />}
-            {tab === 'models' && config && <ModelsTab config={config} onChange={refresh} />}
-            {tab === 'tiers' && config && <TiersTab config={config} onChange={refresh} />}
             {tab === 'safety' && config && <SafetyTab config={config} />}
             {tab === 'credentials' && <CredentialsTab />}
-            {!config && tab !== 'connections' && tab !== 'theme' && tab !== 'credentials' && (
+            {!config && tab === 'safety' && (
               <EmptyState title="配置还在读取" body="如果一直停在这里，请检查后端实例连接和认证状态。" />
             )}
           </div>

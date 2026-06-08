@@ -10,7 +10,6 @@ import {
 } from './facts.js';
 import { zAgentSessionView } from '@berry-agent/core/chat-schema';
 import {
-  TIER_IDS,
   modelBindingSchema,
   modelProviderRefSchema,
   providerInstanceSchema,
@@ -69,7 +68,10 @@ export const zFactSnapshot = z.object({
 });
 export type FactSnapshot = z.infer<typeof zFactSnapshot>;
 
-export const zTierId = z.enum(TIER_IDS as readonly ['strong', 'balanced', 'fast']);
+// Tier ids are template-driven (any string key), not a fixed enum — the SDK
+// dropped the hardcoded TIER_IDS vocabulary so operators can name tiers freely
+// (see SDK #27). A tier is just a string that points at a model id.
+export const zTierId = z.string().min(1);
 export type ConfigTierId = TierId;
 
 export const zModelProviderRef = modelProviderRefSchema;

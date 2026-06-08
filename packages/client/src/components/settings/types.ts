@@ -1,1 +1,1 @@
-export type SettingsTabId = 'connections' | 'theme' | 'providers' | 'models' | 'tiers' | 'safety' | 'credentials';
+export type SettingsTabId = 'connections' | 'theme' | 'safety' | 'credentials';

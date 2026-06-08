@@ -1,12 +1,9 @@
 import type * as React from 'react';
 import {
   Key,
-  Layers,
   Palette,
   Plug,
-  Server,
   ShieldCheck,
-  Zap,
 } from 'lucide-react';
 import type { SettingsTabId } from './types';
 
@@ -19,16 +16,13 @@ export default function SettingsNav({ active, onChange }: SettingsNavProps) {
   const items: Array<{ id: SettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: 'connections', label: '后端实例', icon: <Plug size={15} /> },
     { id: 'theme', label: '外观主题', icon: <Palette size={15} /> },
-    { id: 'providers', label: 'Providers', icon: <Server size={15} /> },
-    { id: 'models', label: 'Models', icon: <Layers size={15} /> },
-    { id: 'tiers', label: 'Tiers', icon: <Zap size={15} /> },
     { id: 'safety', label: '安全', icon: <ShieldCheck size={15} /> },
     { id: 'credentials', label: '工具凭证', icon: <Key size={15} /> },
   ];
 
   return (
     <div className="rounded-2xl border border-white/[0.04] bg-white/[0.02] p-1.5 backdrop-blur-md">
-      <div className="grid gap-1 md:grid-cols-7">
+      <div className="grid gap-1 md:grid-cols-4">
         {items.map((item) => (
           <button
             key={item.id}
