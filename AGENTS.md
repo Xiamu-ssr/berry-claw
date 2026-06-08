@@ -84,6 +84,33 @@ config:
   identity of whoever started that process — that is the security boundary.
 - MCP is **not** a BFF concern. It belongs to the Hand host.
 
+## Platform strategy (Mac = Electron, mobile = no-Chromium shell)
+
+One React core (`packages/client`), two shells:
+
+- **Mac / desktop = Electron** (`packages/desktop`). Electron bundles Chromium,
+  and that is **on purpose**: the product's headline feature is a codex-style
+  **in-app browser you can 圈画 (annotate)** — open any page, drag-select a
+  region, attach a note, and hand that to the agent. That needs a real,
+  controllable browser engine (`WebContentsView` + `capturePage()` + script
+  injection), which only Chromium-in-Electron gives cleanly. Electron's size /
+  power cost is accepted on the desktop in exchange for this. You cannot strip
+  Chromium out of Electron — it is the engine.
+- **Mobile = a no-Chromium shell** (`packages/mobile`, Capacitor → system
+  WebView). Phones don't carry a second browser engine, so the bundle stays
+  small and power-cheap. The trade: **圈画 is a Mac-only module** — mobile
+  drops it. Mobile is the conversation / cluster-monitoring surface, not the
+  annotation surface.
+- **The split lives in the shell, not the core.** The React app is shared; the
+  browser-surface capability is feature-detected via `window.berryDesktopBrowser`
+  (BrowserRail already renders a graceful "desktop-only" fallback when absent).
+  Keep圈画 logic behind that boundary so a no-Chromium build simply doesn't
+  mount it — never `#ifdef` Chromium into the shared core.
+
+The圈画 geometry/url math is pure and unit-tested in
+`client/src/components/workspace/browserAnnotation.ts`; the DOM/Electron parts
+(capture, canvas crop) stay in `BrowserRail.tsx` / `desktop/src/browser-surface.cjs`.
+
 ## Hard rules for this codebase
 
 - No agent engine, no hosts, no in-process Worker, no agent/model/provider
