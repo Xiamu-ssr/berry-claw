@@ -250,6 +250,13 @@ export const zModelCatalogItem = z.object({
   providerName: z.string(),
   type: z.string(),
   contextWindow: z.number().int().positive().optional(),
+  /**
+   * Wire-protocol family the model speaks. Drives the model-picker's
+   * family-lock: an agent can't be switched across families mid-life (it would
+   * break anthropic prompt caching). Derived from the model id; see the SDK's
+   * modelProtocolFamily as the source of truth.
+   */
+  family: z.enum(['anthropic', 'openai']).optional(),
 });
 export type ModelCatalogItem = z.infer<typeof zModelCatalogItem>;
 

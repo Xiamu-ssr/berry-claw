@@ -3,6 +3,22 @@ export function modelShortName(model?: string): string {
   return model.split('/').pop()?.split(':').pop() ?? model;
 }
 
+/**
+ * Wire-protocol family of a model id. Mirrors the SDK's modelProtocolFamily
+ * (packages/models/src/protocol.ts) — kept as a tiny local copy because the
+ * SDK models package is Node-oriented and we don't want it in the browser
+ * bundle. Claude family → 'anthropic', everything else → 'openai'. Used by the
+ * ModelPicker family-lock so an agent can't be switched across protocol
+ * families mid-life (which would break anthropic prompt caching).
+ */
+const ANTHROPIC_FAMILY = /(?:^|[/\-_:])(?:claude|opus|sonnet|haiku)(?:$|[/\-_:.\d])/i;
+export function modelFamily(modelId?: string): 'anthropic' | 'openai' | undefined {
+  if (!modelId) return undefined;
+  // tier:X aliases carry no family — resolved server-side per worker.
+  if (modelId.startsWith('tier:')) return undefined;
+  return ANTHROPIC_FAMILY.test(modelId) ? 'anthropic' : 'openai';
+}
+
 export function shortSessionId(id?: string): string {
   if (!id) return '';
   return id.length > 14 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;

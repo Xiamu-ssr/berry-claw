@@ -8,6 +8,7 @@
  */
 import type { ModelCatalogItem } from '@berry-agent/claw-contracts';
 import type { InspectRuntime, ToolDef } from '../components/agents/types';
+import { modelFamily } from '../utils/format';
 import { a8sClient } from './client';
 
 export interface CreateAgentInput {
@@ -109,15 +110,20 @@ export async function listModelCatalog(): Promise<ModelCatalogItem[]> {
   if (!template) return [];
   const items: ModelCatalogItem[] = [];
   for (const tier of Object.keys(template.tiers)) {
-    items.push({ model: `tier:${tier}`, providerName: 'tier', type: 'tier' });
+    // Tier alias resolves to a concrete model per-worker; surface the target's
+    // family so the picker can still family-lock against a tier selection.
+    const targetId = template.tiers[tier];
+    items.push({ model: `tier:${tier}`, providerName: 'tier', type: 'tier', family: modelFamily(targetId) });
   }
   for (const [id, model] of Object.entries(template.models)) {
     const providerId = model.providers?.[0]?.providerId ?? '';
+    const remoteModelId = model.providers?.[0]?.remoteModelId;
     items.push({
       model: id,
       providerName: providerId,
       type: 'model',
       contextWindow: model.contextWindow,
+      family: modelFamily(id) ?? modelFamily(remoteModelId),
     });
   }
   return items;
