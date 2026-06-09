@@ -2,13 +2,23 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { motion } from 'framer-motion';
 import { cn } from './utils/cn';
 import { Loader2, PanelLeftOpen } from 'lucide-react';
-import { useWebSocket } from './hooks/useWebSocket';
+import { useA8sChat } from './hooks/useA8sChat';
 import ToastContainer, { useToast } from './components/Toast';
 import type { SessionListItem } from './components/workspace/types';
 import type { ReasoningEffort } from './components/ChatInput';
 import { useProjectSummaries } from './projects/summary';
 import type { ContentBlock, WsIncoming } from '@berry-agent/claw-contracts';
-import { API, apiFetch } from './api/paths';
+import {
+  fetchSessions as fetchSessionsFromA8s,
+  fetchSessionMessages as fetchSessionMessagesFromA8s,
+  fetchContextSize as fetchContextSizeFromA8s,
+  fetchSessionTodos as fetchSessionTodosFromA8s,
+  createSession as createSessionOnA8s,
+  resumeSession as resumeSessionOnA8s,
+  fetchModelOptions as fetchModelOptionsFromA8s,
+  switchModel as switchModelOnA8s,
+  setReasoningEffort as setReasoningEffortOnA8s,
+} from './a8s/data';
 import { useActiveInstance } from './connection';
 import { factStore } from './facts/store';
 import { useAgentFacts, useFactHydration, useTeamFacts } from './facts/useFacts';
@@ -173,14 +183,8 @@ export default function App() {
 
   const refreshModelOptions = useCallback(async () => {
     try {
-      const res = await apiFetch(API.models);
-      if (!res.ok) return;
-      const data = await res.json();
-      const models = Array.isArray(data.models)
-        ? data.models.map((m: any) => String(m.model ?? '')).filter(Boolean)
-        : [];
-      const current = typeof data.current === 'string' ? data.current : undefined;
-      setModelOptions(uniqueStrings([current, ...models]));
+      const { current, options } = await fetchModelOptionsFromA8s(selectedAgentIdRef.current);
+      setModelOptions(uniqueStrings([current, ...options]));
     } catch {
       setModelOptions([]);
     }
@@ -208,15 +212,12 @@ export default function App() {
   const fetchAgentSessions = useCallback(async (agentId?: string, preferredSessionId?: string) => {
     if (!agentId) return;
     try {
-      const res = await apiFetch(`${API.sessions}?agentId=${encodeURIComponent(agentId)}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const list = Array.isArray(data.sessions) ? data.sessions : [];
-      const next = list.map((s: any) => ({
+      const list = await fetchSessionsFromA8s(agentId);
+      const next = list.map((s) => ({
         id: s.id,
         title: s.title,
-        updatedAt: s.lastActiveAt ?? s.createdAt,
-        messageCount: Array.isArray(s.messages) ? s.messages.length : undefined,
+        updatedAt: s.updatedAt,
+        messageCount: s.messageCount,
         status: s.status,
       }));
       // Sessions list is a global UI affordance for the active tab; keep one
@@ -228,17 +229,10 @@ export default function App() {
       }
       const currentSessionId = getRuntime(agentId).activeSessionId;
       const targetSessionId = preferredSessionId ?? currentSessionId;
-      const stillActive = targetSessionId && list.some((s: any) => s.id === targetSessionId);
-      const session = stillActive ? list.find((s: any) => s.id === targetSessionId) : list[0];
-      let messages = Array.isArray(session.messages) ? session.messages : undefined;
-      if (!messages) {
-        const detailRes = await apiFetch(API.session(session.id, agentId, 600));
-        if (detailRes.ok) {
-          const detail = await detailRes.json();
-          messages = Array.isArray(detail.messages) ? detail.messages : [];
-        }
-      }
-      setRuntimeActiveSession(agentId, session.id, messages ?? []);
+      const stillActive = targetSessionId && list.some((s) => s.id === targetSessionId);
+      const session = stillActive ? list.find((s) => s.id === targetSessionId)! : list[0];
+      const messages = await fetchSessionMessagesFromA8s(agentId, session.id);
+      setRuntimeActiveSession(agentId, session.id, messages);
     } catch {
       // The connection gate and toast layer surface auth / network failures.
     }
@@ -247,12 +241,8 @@ export default function App() {
   const fetchAgentContextSize = useCallback(async (agentId?: string, sessionId?: string) => {
     if (!agentId) return;
     try {
-      const res = await apiFetch(API.agentContextSize(agentId, sessionId));
-      if (!res.ok) return;
-      const data = await res.json();
-      if (typeof data.current === 'number' && typeof data.window === 'number') {
-        setRuntimeContext(agentId, data.current, data.window);
-      }
+      const ctx = await fetchContextSizeFromA8s(agentId, sessionId);
+      if (ctx) setRuntimeContext(agentId, ctx.current, ctx.window);
     } catch {
       // Best-effort dashboard data.
     }
@@ -266,10 +256,7 @@ export default function App() {
   const fetchSessionTodos = useCallback(async (sessionId?: string, agentId?: string) => {
     if (!sessionId || !agentId) return;
     try {
-      const res = await apiFetch(API.sessionTodos(sessionId, agentId));
-      if (!res.ok) return;
-      const data = await res.json();
-      const todos = Array.isArray(data.todos) ? data.todos : [];
+      const todos = await fetchSessionTodosFromA8s(agentId, sessionId);
       setRuntimeTodos(agentId, sessionId, todos);
     } catch {
       // Best-effort side panel data.
@@ -305,27 +292,14 @@ export default function App() {
     dispatchFrame(msg);
   }, [dispatchFrame]);
 
-  const { send, connected } = useWebSocket(handleWsMessage);
+  const { send, connected } = useA8sChat(handleWsMessage);
 
   const fetchPendingSafetyAsks = useCallback(async () => {
-    if (!activeInstance) return;
-    try {
-      const res = await apiFetch(API.safetyAsk);
-      if (!res.ok) return;
-      const data = await res.json();
-      const pending = Array.isArray(data.pending) ? data.pending : [];
-      setPendingSafetyAsks((prev) => {
-        const next = [...prev];
-        for (const item of pending) {
-          if (!item?.id || !item?.question || next.some((ask) => ask.id === item.id)) continue;
-          next.push({ id: String(item.id), question: item.question });
-        }
-        return next;
-      });
-    } catch {
-      // Best effort: websocket broadcasts still cover live approval requests.
-    }
-  }, [activeInstance]);
+    // Human-in-the-loop approval was a console-backend broadcast flow. Under
+    // direct-connect there is no a8s endpoint for pending asks yet, so this is
+    // a no-op; live asks (when supported) will arrive as stream frames.
+    // TODO(B1-e): wire approvals through a8s once it exposes them.
+  }, []);
 
   useEffect(() => {
     if (!connected) return;
@@ -407,12 +381,7 @@ export default function App() {
     const agentId = selectedAgentIdRef.current;
     if (!agentId) return;
     try {
-      const res = await apiFetch(API.agent(agentId), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reasoningEffort: effort }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await setReasoningEffortOnA8s(agentId, effort);
     } catch (err) {
       console.error('[reasoning] failed to update:', err);
     }
@@ -424,12 +393,7 @@ export default function App() {
     const agentId = selectedAgentIdRef.current;
     if (!agentId) return;
     try {
-      const res = await apiFetch(API.modelsSwitch, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: nextModel, agentId }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await switchModelOnA8s(agentId, nextModel);
       setModelOptions((prev) => uniqueStrings([nextModel, ...prev]));
       toastRef.current.show({
         variant: 'info',
@@ -454,15 +418,8 @@ export default function App() {
     setRuntimeCreatingSession(agentId, true);
     setRuntimeContext(agentId, 0, contextWindow);
     try {
-      const res = await apiFetch(API.sessions, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId }),
-      });
-      const state = await res.json();
-      if (!res.ok) throw new Error(state.error ?? `HTTP ${res.status}`);
-      const messages = Array.isArray(state.messages) ? state.messages : [];
-      setRuntimeActiveSession(agentId, state.id, messages);
+      const state = await createSessionOnA8s(agentId);
+      setRuntimeActiveSession(agentId, state.id, state.messages);
       await fetchAgentSessions(agentId, state.id);
       void fetchAgentContextSize(agentId, state.id);
     } catch (err) {
@@ -491,13 +448,10 @@ export default function App() {
     if (!agentId) return;
     setRuntimeContext(agentId, 0, contextWindow);
     try {
-      const res = await apiFetch(API.session(sessionId, agentId, 600));
-      const state = await res.json();
-      if (!res.ok) throw new Error(state.error ?? `HTTP ${res.status}`);
-      const messages = Array.isArray(state.messages) ? state.messages : [];
-      setRuntimeActiveSession(agentId, state.id ?? sessionId, messages);
-      void fetchAgentSessions(agentId, state.id ?? sessionId);
-      void fetchAgentContextSize(agentId, state.id ?? sessionId);
+      const state = await resumeSessionOnA8s(agentId, sessionId);
+      setRuntimeActiveSession(agentId, state.id, state.messages);
+      void fetchAgentSessions(agentId, state.id);
+      void fetchAgentContextSize(agentId, state.id);
     } catch (err) {
       toastRef.current.show({
         variant: 'error',
