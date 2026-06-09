@@ -14,7 +14,8 @@
  */
 
 import type { AgentFact, TeamFact, SessionFact, SystemFact, FactChange, FactKind } from '@berry-agent/claw-contracts';
-import { API, apiFetch } from '../api/paths';
+import { API } from '../api/paths';
+import { loadAgentFacts } from '../a8s/facts';
 
 type Listener = () => void;
 
@@ -45,17 +46,25 @@ class FactStore {
     system: new Set(),
   };
 
-  /** One-time seed from the snapshot endpoint. Safe to call again (idempotent). */
+  /**
+   * Seed the store from a8s. Agents are assembled directly from the control
+   * plane (listAgents + agentSnapshot) via @berry-agent/client — the console
+   * no longer carries a /api/facts endpoint. Teams/sessions/system are layered
+   * in as their direct-connect paths land; until then they stay empty rather
+   * than calling a torn-down BFF route.
+   */
   async hydrate(kind: FactKind | 'all' = 'all'): Promise<void> {
-    const url = kind === 'all' ? '/api/facts' : `/api/facts?kind=${kind}`;
-    try {
-      const res = await apiFetch(url);
-      if (!res.ok) return;
-      const data = (await res.json()) as { changes: FactChange[] };
-      for (const change of data.changes) this.applyChange(change);
-      this.notifyAllKinds();
-    } catch (err) {
-      console.warn('[facts] hydrate failed:', err);
+    if (kind === 'all' || kind === 'agent') {
+      try {
+        const facts = await loadAgentFacts();
+        // Replace the agent bucket wholesale (roster is authoritative).
+        this.agents.clear();
+        for (const fact of facts) this.agents.set(fact.id, fact);
+        this.rebuildCache('agent');
+        this.listenersByKind.agent.forEach((fn) => fn());
+      } catch (err) {
+        console.warn('[facts] agent hydrate failed:', err);
+      }
     }
   }
 
