@@ -42,9 +42,12 @@ export async function startServer(port: number, options: StartServerOptions = {}
   app.use(cors());
   app.use(express.json());
 
-  // Browser auth (challenge/verify). Everything agent-related is on a8s; the
-  // front-end reaches a8s directly with its product token.
-  registerAuthRoutes(app, authStore, keyStore);
+  // Browser auth (challenge/verify) + the a8s bridge. Everything agent-related
+  // is on a8s; the front-end reaches a8s directly with the product token the
+  // console releases here only to a verified session.
+  registerAuthRoutes(app, authStore, keyStore, {
+    getA8sConnection: () => config.a8s,
+  });
 
   // Static frontend (production build).
   const packagedWebDist = resolve(import.meta.dirname, '../web-dist');

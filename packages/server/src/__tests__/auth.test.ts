@@ -19,6 +19,10 @@ const BASE = `http://localhost:${PORT}`;
 
 beforeAll(async () => {
   testAppDir = await mkdtemp(join(tmpdir(), 'berry-claw-auth-'));
+  // The a8s bridge releases this token only to a verified session. Set it via
+  // env so ClawConfig.a8s picks it up (no config.json edit needed).
+  process.env.BERRY_A8S_URL = 'http://a8s.test:8080';
+  process.env.BERRY_A8S_ADMIN_TOKEN = 'bp_test_product_token';
   // ClawConfig seeds a default config.json on first boot; no need to pre-write.
   const result = await startServer(PORT, { appDir: testAppDir });
   server = result.server;
@@ -83,5 +87,36 @@ describe('auth', () => {
       body: JSON.stringify({ nonce: challenge.nonce, signature: 'not-a-real-signature' }),
     });
     expect(bad.status).toBe(401);
+  });
+
+  it('refuses the a8s bridge without a valid session token', async () => {
+    const res = await fetch(`${BASE}/api/auth/a8s`);
+    expect(res.status).toBe(401);
+    const withGarbage = await fetch(`${BASE}/api/auth/a8s`, {
+      headers: { Authorization: 'Bearer not-a-real-token' },
+    });
+    expect(withGarbage.status).toBe(401);
+  });
+
+  it('releases the a8s connection to a verified session', async () => {
+    const challenge = await fetch(`${BASE}/api/auth/challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }).then(r => r.json());
+    const signature = signNonce(createKeyStore(testAppDir), challenge.nonce);
+    const { sessionToken } = await fetch(`${BASE}/api/auth/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce: challenge.nonce, signature }),
+    }).then(r => r.json());
+
+    const res = await fetch(`${BASE}/api/auth/a8s`, {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    expect(res.ok).toBe(true);
+    const conn = await res.json();
+    expect(conn.url).toBe('http://a8s.test:8080');
+    expect(conn.token).toBe('bp_test_product_token');
   });
 });

@@ -39,3 +39,19 @@ export const zInstanceIdentity = z.object({
   keyFingerprint: z.string(),
 });
 export type InstanceIdentity = z.infer<typeof zInstanceIdentity>;
+
+/**
+ * The a8s connection the console hands to an authenticated browser so the UI
+ * can talk to the control plane directly via @berry-agent/client.
+ *
+ * The console (BFF) holds the product token server-side and only releases it
+ * to a verified session — the browser never sees the admin token, and the
+ * token never sits in a config file the user edits. `url` is the a8s base
+ * (e.g. https://a8s.example.com); `token` is a product-scoped `bp_…` token (or
+ * an admin token in single-tenant/dev setups).
+ */
+export const zA8sConnectionInfo = z.object({
+  url: z.string().url(),
+  token: z.string().min(1),
+});
+export type A8sConnectionInfo = z.infer<typeof zA8sConnectionInfo>;
