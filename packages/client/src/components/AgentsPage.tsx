@@ -6,7 +6,8 @@ import { AgentHero } from './agents/AgentHero';
 import { AgentListPane } from './agents/AgentListPane';
 import { AgentModulePanel } from './agents/AgentModules';
 import { emptyAgentForm, type AgentForm, type DetailTab, type InspectRuntime } from './agents/types';
-import { API, apiFetch } from '../api/paths';
+import { createAgent, deleteAgent as deleteAgentOnA8s, inspectAgent, listModelCatalog, patchAgentSpec } from '../a8s/agents';
+import { switchModel, setReasoningEffort } from '../a8s/data';
 import { useAgentFacts, useSystemFact } from '../facts/useFacts';
 import { factStore } from '../facts/store';
 import type {
@@ -48,24 +49,24 @@ export default function AgentsPage() {
   }, [agents, selectedId]);
 
   const refetchModels = useCallback(async () => {
-    const res = await apiFetch(API.models);
-    const data = await res.json();
-    setModels(Array.isArray(data.models) ? data.models : []);
+    try {
+      setModels(await listModelCatalog());
+    } catch {
+      setModels([]);
+    }
   }, []);
 
+  // Prompt packs are a not-yet-ported product surface (the console BFF owned
+  // them). a8s has no prompt-pack registry, so the picker degrades to the
+  // agent's current value rather than calling a dead route.
   const refetchPromptPacks = useCallback(async () => {
-    const res = await apiFetch(API.promptPacks);
-    const data = await res.json();
-    setPromptPacks(Array.isArray(data.promptPacks) ? data.promptPacks : []);
+    setPromptPacks([]);
   }, []);
 
   const loadInspect = useCallback(async (agentId: string) => {
     setLoadingRuntime(true);
     try {
-      const res = await apiFetch(API.agentInspect(agentId));
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setRuntime((data.runtime ?? null) as InspectRuntime | null);
+      setRuntime(await inspectAgent(agentId));
     } catch (err) {
       setRuntime(null);
       showToast(err instanceof Error ? err.message : 'Failed to inspect agent', 'error');
@@ -141,26 +142,30 @@ export default function AgentsPage() {
       return;
     }
 
-    const body = {
-      name,
-      model,
-      project: form.project.trim() || undefined,
-      reasoningEffort: form.reasoningEffort || undefined,
-      promptPack: form.promptPack || undefined,
-    };
-    const res = await apiFetch(API.agent(id), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      showToast(data.error ?? `Save failed (${res.status})`, 'error');
+    try {
+      if (editorMode === 'edit') {
+        // An existing agent: live-patch the mutable fields rather than
+        // re-create. Name is a label; a8s has no rename, so editing name is
+        // a no-op on the wire today — model/reasoning are what take effect.
+        await switchModel(id, model);
+        if (form.reasoningEffort) await setReasoningEffort(id, form.reasoningEffort);
+      } else {
+        await createAgent({
+          agentId: id,
+          name,
+          model,
+          reasoningEffort: form.reasoningEffort || undefined,
+          project: form.project.trim() || undefined,
+        });
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Save failed', 'error');
       return;
     }
     showToast(editorMode === 'create' ? 'Agent created' : 'Agent updated');
     setSelectedId(id);
     closeEditor();
+    void factStore.hydrate('agent');
     window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: id }));
   };
 
@@ -173,28 +178,31 @@ export default function AgentsPage() {
   };
 
   const deleteAgent = async (agent: AgentFact) => {
-    if (!window.confirm(`Remove agent "${agent.name}" from the Claw registry? SDK-owned agent data stays on disk.`)) return;
-    const res = await apiFetch(API.agent(agent.id), { method: 'DELETE' });
-    if (!res.ok) {
-      showToast(`Delete failed (${res.status})`, 'error');
+    if (!window.confirm(`Remove agent "${agent.name}" from the registry? SDK-owned agent data stays on disk.`)) return;
+    try {
+      await deleteAgentOnA8s(agent.id);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Delete failed', 'error');
       return;
     }
     showToast('Agent removed from registry');
+    void factStore.hydrate('agent');
   };
 
   const patchAgent = async (agent: AgentFact, patch: Record<string, unknown>, success: string) => {
-    const res = await apiFetch(API.agent(agent.id), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      showToast(data.error ?? `Update failed (${res.status})`, 'error');
+    try {
+      const applied = await patchAgentSpec(agent.id, patch);
+      if (!applied) {
+        showToast('该项暂未接入控制台', 'error');
+        return false;
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Update failed', 'error');
       return false;
     }
     showToast(success);
     void loadInspect(agent.id);
+    void factStore.hydrate('agent');
     return true;
   };
 

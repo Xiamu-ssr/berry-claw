@@ -14,7 +14,6 @@
 
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ShieldAlert, XCircle } from 'lucide-react';
-import { API, apiFetch } from '../api/paths';
 import { Modal, ModalBody, ModalFooter, ModalHeader } from './ui/Modal';
 
 export interface PendingSafetyAsk {
@@ -48,29 +47,14 @@ export function SafetyAskDialog({
     if (!ask) return;
     setSubmitting(true);
     setError(null);
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15_000);
-    try {
-      const res = await apiFetch(API.safetyAskResolve(ask.id), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved, note: note.trim() || undefined }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`);
-      }
-      onResolved(ask.id);
-      setNote('');
-    } catch (err) {
-      setError(err instanceof Error && err.name === 'AbortError'
-        ? 'Approval request timed out. The server may still be waiting; reconnect or retry.'
-        : err instanceof Error ? err.message : String(err));
-    } finally {
-      window.clearTimeout(timeout);
-      setSubmitting(false);
-    }
+    // Approval resolution was a console-backend route (POST /api/safety/ask/:id
+    // resolved a server-held Promise). a8s does not expose human-in-the-loop
+    // approval yet, so we can't settle the ask from the console; surface that
+    // and clear it locally rather than hitting a dead route.
+    // TODO(a8s): wire approvals through the control plane when available.
+    void approved;
+    setSubmitting(false);
+    setError('审批通道暂未接入控制台(a8s 尚未提供 human-in-the-loop 审批接口)。');
   };
 
   const inputPreview = ask ? JSON.stringify(ask.question.input, null, 2) : '';

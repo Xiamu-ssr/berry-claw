@@ -8,21 +8,13 @@
  *
  *   1. 后端实例 (Connections) — which a8s instance to talk to
  *   2. 外观主题 (Theme)
- *   3. 安全 (Safety) — three-tier approval mode
- *   4. 工具凭证 (Credentials) — tool secrets
+ *   3. 安全 (Safety) — read-only; policy lives in each agent's a8s spec
+ *   4. 工具凭证 (Credentials) — read-only; secrets live on the machine
  */
-import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { API, apiFetch } from '../api/paths';
-import type { ConfigResponse as ConfigPayload } from '@berry-agent/claw-contracts';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import SettingsNav from './settings/SettingsNav';
 import type { SettingsTabId } from './settings/types';
-import {
-  EmptyState,
-  InlineSpinner,
-  PrimaryButton,
-  WorkbenchPage,
-} from './workbench';
+import { InlineSpinner, WorkbenchPage } from './workbench';
 
 const ConnectionsTab = lazy(() => import('./ConnectionsTab').then(mod => ({ default: mod.ConnectionsTab })));
 const CredentialsTab = lazy(() => import('./settings/CredentialsTab'));
@@ -38,26 +30,11 @@ export default function SettingsPage() {
     return () => window.removeEventListener('berry-claw:open-connections-tab', handler);
   }, []);
 
-  const [config, setConfig] = useState<ConfigPayload | null>(null);
-
-  const refresh = useCallback(async () => {
-    const cfg = await apiFetch(API.config).then(r => r.json());
-    setConfig(cfg);
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
   return (
     <WorkbenchPage
       eyebrow="Config"
       title="设置"
-      description="连接后端实例、外观、安全策略与工具凭证。模型/供应商/档位的配置已上移到 a8s 控制台。"
-      actions={
-        <PrimaryButton onClick={refresh}>
-          <RefreshCw size={14} />
-          刷新配置
-        </PrimaryButton>
-      }
+      description="连接后端实例与外观主题。模型/供应商/档位、安全策略、工具凭证均由 a8s 控制台或机器侧管理。"
     >
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <SettingsNav
@@ -68,11 +45,8 @@ export default function SettingsPage() {
           <div className="space-y-4 p-5 pb-20">
             {tab === 'connections' && <ConnectionsTab />}
             {tab === 'theme' && <ThemeTab />}
-            {tab === 'safety' && config && <SafetyTab config={config} />}
+            {tab === 'safety' && <SafetyTab />}
             {tab === 'credentials' && <CredentialsTab />}
-            {!config && tab === 'safety' && (
-              <EmptyState title="配置还在读取" body="如果一直停在这里，请检查后端实例连接和认证状态。" />
-            )}
           </div>
         </Suspense>
       </div>

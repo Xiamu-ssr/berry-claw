@@ -14,7 +14,6 @@
  */
 
 import type { AgentFact, TeamFact, SessionFact, SystemFact, FactChange, FactKind } from '@berry-agent/claw-contracts';
-import { API } from '../api/paths';
 import { loadAgentFacts } from '../a8s/facts';
 
 type Listener = () => void;
@@ -31,6 +30,9 @@ class FactStore {
   // with 'The result of getSnapshot should be cached to avoid an infinite
   // loop'. We rebuild only on apply()/hydrate() mutations.
   private agentsList: AgentFact[] = [];
+  /** JSON signature of the last hydrated agent roster; lets the poll skip
+   *  no-op ticks instead of re-rendering the tree every few seconds. */
+  private agentsSignature = '';
   private teamsList: TeamFact[] = [];
   private sessionsList: SessionFact[] = [];
   /** Which agent the UI is currently viewing. Frontend-owned (the backend
@@ -57,6 +59,13 @@ class FactStore {
     if (kind === 'all' || kind === 'agent') {
       try {
         const facts = await loadAgentFacts();
+        // Skip the churn when the roster is byte-identical to what we hold —
+        // the poll runs every few seconds and most ticks are no-ops, so we
+        // must not hand useSyncExternalStore a fresh array each time (it would
+        // re-render the whole tree). Only rebuild + notify on a real change.
+        const next = JSON.stringify(facts);
+        if (next === this.agentsSignature) return;
+        this.agentsSignature = next;
         // Replace the agent bucket wholesale (roster is authoritative).
         this.agents.clear();
         for (const fact of facts) this.agents.set(fact.id, fact);
@@ -174,7 +183,3 @@ function persistSelection(agentId: string): void {
     /* localStorage unavailable (private mode, SSR) — selection stays in-memory */
   }
 }
-
-// Re-export the paths import so consumers don't need to reach into api/.
-// (Trivial but keeps the public store surface self-contained.)
-export { API };

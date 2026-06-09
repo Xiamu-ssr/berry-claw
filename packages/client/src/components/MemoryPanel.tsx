@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Save, Loader2, Brain, BookOpen } from 'lucide-react';
-import { API, apiFetch } from '../api/paths';
+import { readAgentMemory, writeAgentMemory, readProjectKnowledge } from '../a8s/agents';
 import { showToast } from './Toast';
 
 interface MemoryPanelProps {
@@ -37,17 +37,15 @@ export default function MemoryPanel({ agentId, hasProject }: MemoryPanelProps) {
     (async () => {
       setLoading(true);
       try {
-        const [memRes, knowledgeRes] = await Promise.all([
-          apiFetch(API.agentMemory(agentId)).then((r) => r.json()),
-          hasProject
-            ? apiFetch(API.agentProjectKnowledge(agentId)).then((r) => r.json())
-            : Promise.resolve({ files: [] }),
+        const [mem, files] = await Promise.all([
+          readAgentMemory(agentId),
+          hasProject ? readProjectKnowledge(agentId) : Promise.resolve([]),
         ]);
         if (cancelled) return;
-        setMemory(memRes.content ?? '');
-        setOriginalMemory(memRes.content ?? '');
-        setMemoryPath(memRes.path ?? '');
-        setKnowledge(knowledgeRes.files ?? []);
+        setMemory(mem.content);
+        setOriginalMemory(mem.content);
+        setMemoryPath(mem.path);
+        setKnowledge(files);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -58,12 +56,7 @@ export default function MemoryPanel({ agentId, hasProject }: MemoryPanelProps) {
   const save = async () => {
     setSaving(true);
     try {
-      const res = await apiFetch(API.agentMemory(agentId), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: memory }),
-      });
-      if (!res.ok) throw new Error('save failed');
+      await writeAgentMemory(agentId, memory);
       setOriginalMemory(memory);
       showToast('Memory saved');
     } catch (err) {

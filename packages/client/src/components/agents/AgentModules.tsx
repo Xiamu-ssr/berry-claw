@@ -3,7 +3,6 @@ import {
   Boxes,
   Brain,
   FileText,
-  Loader2,
   MemoryStick,
   RefreshCw,
   Save,
@@ -17,7 +16,6 @@ import type {
   MCPServerFact,
   PromptBlockInfo,
 } from '@berry-agent/claw-contracts';
-import { API, apiFetch } from '../../api/paths';
 import MemoryPanel from '../MemoryPanel';
 import { showToast } from '../Toast';
 import {
@@ -343,7 +341,6 @@ function PromptBlockCard({
   onReload: () => void;
 }) {
   const [draft, setDraft] = useState(block.text);
-  const [saving, setSaving] = useState(false);
   const dirty = draft !== block.text;
 
   useEffect(() => {
@@ -351,22 +348,10 @@ function PromptBlockCard({
   }, [block.text]);
 
   const save = async () => {
-    setSaving(true);
-    try {
-      const res = await apiFetch(API.agentPromptBlock(agentId, block.id), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: draft }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      showToast(`Saved ${block.title}`);
-      onReload();
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Prompt save failed', 'error');
-    } finally {
-      setSaving(false);
-    }
+    // Prompt-block editing was a console-backend write path. a8s exposes the
+    // system prompt read-only via the snapshot (no per-block PUT), so editing
+    // is degraded to read-only until the control plane offers a write route.
+    showToast('Prompt 编辑暂未接入控制台（只读）', 'error');
   };
 
   return (
@@ -392,8 +377,8 @@ function PromptBlockCard({
             spellCheck={false}
           />
           <div className="mt-3 flex justify-end">
-            <PrimaryButton onClick={save} disabled={!dirty || saving}>
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            <PrimaryButton onClick={save} disabled={!dirty}>
+              <Save size={14} />
               保存源文件
             </PrimaryButton>
           </div>

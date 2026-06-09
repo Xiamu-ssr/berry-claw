@@ -1,14 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type * as React from 'react';
-import { Bot, FileText, FolderKanban, Loader2, ShieldCheck } from 'lucide-react';
-import { SAFETY_LEVELS } from '@berry-agent/claw-contracts/safety';
-import type {
-  SafetyLevel,
-  SafetySnapshot,
-} from '@berry-agent/claw-contracts';
-import { API, apiFetch } from '../api/paths';
+import { Bot, FileText, FolderKanban, ShieldCheck } from 'lucide-react';
 import StatusDot from './StatusDot';
-import { useToast } from './Toast';
 import { modelShortName } from '../utils/format';
 import type { ProjectSummary } from '../projects/summary';
 
@@ -203,106 +196,21 @@ function ProjectStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ProjectSafetyPanel({ project }: { project: ProjectSummary }) {
-  const [snapshot, setSnapshot] = useState<SafetySnapshot | null>(null);
-  const [saving, setSaving] = useState(false);
-  const toast = useToast();
-
-  const refresh = useCallback(async () => {
-    const res = await apiFetch(API.safety);
-    if (!res.ok) return;
-    setSnapshot((await res.json()) as SafetySnapshot);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh, project.path]);
-
-  const projectLayer = snapshot?.agents.find((agent) => agent.projectRoot === project.path);
-  const value = projectLayer?.projectLevel ?? null;
-
-  const setProjectLevel = async (level: SafetyLevel | null) => {
-    setSaving(true);
-    try {
-      const res = await apiFetch(API.safetyProject, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ projectRoot: project.path, level }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      toast.show({ title: 'Project safety', message: level ? `Set to ${level}` : 'Cleared' });
-      await refresh();
-    } catch (err) {
-      toast.show({
-        variant: 'error',
-        title: 'Project safety update failed',
-        message: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
+function ProjectSafetyPanel({ project: _project }: { project: ProjectSummary }) {
+  // Project-layer safety was a console-backend snapshot/PATCH. Under direct-
+  // connect, safety lives in each agent's a8s spec (agent > project > global
+  // cascade resolved server-side), and there is no console route to set the
+  // project layer. Degrade to a read-only notice rather than a dead PATCH.
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
-          <ShieldCheck size={13} />
-          项目安全策略
-        </div>
-        {saving && <Loader2 size={13} className="animate-spin text-zinc-500" />}
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-300">
+        <ShieldCheck size={13} />
+        项目安全策略
       </div>
-      <div className="grid gap-2">
-        <SafetyChoiceButton
-          label="继承"
-          summary={`继承 global：${snapshot?.globalLevel ?? 'default'}`}
-          active={value === null}
-          disabled={saving}
-          onClick={() => setProjectLevel(null)}
-        />
-        {SAFETY_LEVELS.map((level) => (
-          <SafetyChoiceButton
-            key={level}
-            label={SAFETY_META[level].label}
-            summary={SAFETY_META[level].summary}
-            active={value === level}
-            disabled={saving}
-            onClick={() => setProjectLevel(level)}
-          />
-        ))}
+      <div className="rounded-xl border border-white/[0.07] bg-black/10 px-3 py-2.5 text-[11px] leading-4 text-zinc-500">
+        安全策略归 a8s 的 agent spec(按 agent / project / global 继承)。控制台暂不提供项目层改写,请在 a8s 上调整。
       </div>
     </div>
-  );
-}
-
-function SafetyChoiceButton({
-  label,
-  summary,
-  active,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  summary: string;
-  active: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        active
-          ? 'border-sky-200/24 bg-sky-200/[0.075]'
-          : 'border-white/[0.07] bg-white/[0.025] hover:border-sky-200/16 hover:bg-sky-200/[0.055]'
-      }`}
-    >
-      <div className="text-xs font-medium text-zinc-100">{label}</div>
-      <div className="mt-0.5 text-[11px] leading-4 text-zinc-600">{summary}</div>
-    </button>
   );
 }
 
@@ -336,9 +244,3 @@ function EmptyPanel({ icon, title, body }: { icon: React.ReactNode; title: strin
     </div>
   );
 }
-
-const SAFETY_META: Record<SafetyLevel, { label: string; summary: string }> = {
-  trust: { label: 'Trust', summary: '只拦截灾难级命令，不限制写入范围。' },
-  default: { label: 'Default', summary: '限制写入范围，并拦截高危命令。' },
-  auto: { label: 'Auto', summary: 'Default + LLM classifier 自动审批；无 classifier 时回退人工审批。' },
-};

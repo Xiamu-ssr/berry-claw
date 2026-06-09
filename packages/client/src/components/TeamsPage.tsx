@@ -18,7 +18,6 @@ import {
   XCircle,
 } from 'lucide-react';
 import { showToast } from './Toast';
-import { API, apiFetch } from '../api/paths';
 import { useAgentFacts, useTeamFacts } from '../facts/useFacts';
 import { factStore } from '../facts/store';
 import {
@@ -244,22 +243,14 @@ function NewTeamPanel({
 
   const create = async () => {
     if (!leaderId) return;
-    setBusy(true);
-    try {
-      const res = await apiFetch(API.agentTeamStart(leaderId), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() || `${leader?.entry.name ?? leaderId} team` }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to start team');
-      showToast({ title: 'Team started', message: name.trim() || 'team' });
-      onCreated(leaderId);
-    } catch (err) {
-      showToast({ variant: 'error', title: 'Failed to start team', message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setBusy(false);
-    }
+    // Team orchestration (start/disband/worklist/messages) was a console
+    // backend capability. a8s has no team API yet, so we can't start a team
+    // from the console — surface that instead of POSTing a dead route.
+    showToast({
+      variant: 'error',
+      title: '团队功能暂未接入控制台',
+      message: 'a8s 尚未提供团队编排接口;团队由 leader agent 在会话内通过 SDK 工具自行组建。',
+    });
   };
 
   return (
@@ -317,59 +308,24 @@ function TeamDetail({ leaderId, onBack }: { leaderId: string; onBack: () => void
 
   const leader = agentFacts.find((agent) => agent.id === leaderId);
 
+  // Team read paths (state / messages / worklist) were console-backend routes.
+  // a8s has no team API, and team facts never hydrate under direct-connect, so
+  // this detail view is currently unreachable; the fetch is a no-op rather than
+  // hitting a dead route. Kept wired so re-enabling is a one-function change.
   const fetchAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [teamRes, msgsRes, worklistRes] = await Promise.all([
-        apiFetch(API.agentTeam(leaderId)),
-        apiFetch(API.agentTeamMessages(leaderId)),
-        apiFetch(API.agentTeamWorklist(leaderId)),
-      ]);
-      const teamData = await teamRes.json();
-      const msgsData = msgsRes.ok ? await msgsRes.json() : { messages: [] };
-      const wlData = worklistRes.ok ? await worklistRes.json() : { tasks: [] };
-      setTeam(teamData.team);
-      setMessages(msgsData.messages || []);
-      setTasks(wlData.tasks || []);
-    } finally {
-      setLoading(false);
-    }
-  }, [leaderId]);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     void fetchAll();
-    let iv: ReturnType<typeof setInterval> | null = setInterval(fetchAll, 15_000);
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        void fetchAll();
-        if (!iv) iv = setInterval(fetchAll, 15_000);
-      } else if (iv) {
-        clearInterval(iv);
-        iv = null;
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      if (iv) clearInterval(iv);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
   }, [fetchAll]);
 
   const disband = async () => {
-    if (!team) return;
-    if (!window.confirm(`Disband team "${team.name}"? SDK team state will be removed and teammates will be detached.`)) return;
-    setDisbanding(true);
-    try {
-      const res = await apiFetch(API.agentTeam(leaderId), { method: 'DELETE' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      showToast({ title: 'Team disbanded', message: team.name });
-      onBack();
-    } catch (err) {
-      showToast({ variant: 'error', title: 'Failed to disband', message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setDisbanding(false);
-    }
+    showToast({
+      variant: 'error',
+      title: '团队功能暂未接入控制台',
+      message: 'a8s 尚未提供团队编排接口。',
+    });
   };
 
   const chatWithLeader = async () => {
