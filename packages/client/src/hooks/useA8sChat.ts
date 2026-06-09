@@ -66,21 +66,9 @@ export function useA8sChat(onMessage: (msg: WsIncoming) => void) {
           if (frame) emit(frame);
         },
       );
-      // The SendResponse carries the authoritative sessionId + opaque result.
-      const sessionId = response.sessionId ?? ctx.sessionId ?? '';
-      ctx.sessionId = sessionId;
-      const result = (response.result ?? {}) as Record<string, unknown>;
-      const message = (result.message as ChatMessage) ?? buildFallbackMessage(result, msg.requestId);
-      emit({
-        type: 'done',
-        agentId,
-        sessionId,
-        message,
-        usage: result.usage ?? null,
-        totalUsage: result.totalUsage ?? null,
-        toolCalls: Number(result.toolCalls ?? 0),
-        requestId: msg.requestId,
-      });
+      const done = buildDoneFrame(response, { agentId, fallbackSessionId: ctx.sessionId, requestId: msg.requestId });
+      ctx.sessionId = done.sessionId;
+      emit(done);
     } catch (err) {
       emit({
         type: 'error',
@@ -117,6 +105,38 @@ export function useA8sChat(onMessage: (msg: WsIncoming) => void) {
   }, [runChat, emit]);
 
   return { send, connected };
+}
+
+/**
+ * Shape a turn's final SendResponse into the synthetic `done` frame the reducer
+ * expects. Exported + pure so it can be unit-tested without a live SSE turn.
+ *
+ * `response.result` IS the opaque ManagedAgentTurnResult
+ * (`{ sessionId, userMessage, result: QueryResult, assistantMessage, view }`).
+ * The rendered assistant bubble lives at `.assistantMessage`; usage /
+ * totalUsage / toolCalls (a count, not an array) live on the inner QueryResult
+ * at `.result`. Reading `.message`/`.usage` off the OUTER object — as we used
+ * to — always yielded undefined, so every assistant turn closed with an empty
+ * bubble and zero usage.
+ */
+export function buildDoneFrame(
+  response: { sessionId?: string; result?: unknown },
+  opts: { agentId: string; fallbackSessionId?: string; requestId?: string },
+): Extract<WsIncoming, { type: 'done' }> {
+  const sessionId = response.sessionId ?? opts.fallbackSessionId ?? '';
+  const turn = (response.result ?? {}) as Record<string, unknown>;
+  const query = (turn.result ?? {}) as Record<string, unknown>;
+  const message = (turn.assistantMessage as ChatMessage) ?? buildFallbackMessage(query, opts.requestId);
+  return {
+    type: 'done',
+    agentId: opts.agentId,
+    sessionId,
+    message,
+    usage: query.usage ?? null,
+    totalUsage: query.totalUsage ?? null,
+    toolCalls: Number(query.toolCalls ?? 0),
+    requestId: opts.requestId,
+  };
 }
 
 /** When a turn result has no rendered message, synthesize a minimal one so the
