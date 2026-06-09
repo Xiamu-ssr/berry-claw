@@ -12,6 +12,7 @@ import type {
   ChatTimelineEvent,
   ContentBlock,
   InferenceInfo,
+  ModelCatalogItem,
   TodoItem,
 } from '@berry-agent/claw-contracts';
 import { cn } from '../../utils/cn';
@@ -62,6 +63,7 @@ interface InboxViewProps {
   onSwitchAgent: (agentId: string) => void;
   onReasoningEffortChange: (effort: ReasoningEffort) => void;
   modelOptions: string[];
+  modelCatalog?: ModelCatalogItem[];
   onModelChange: (model: string) => void;
 }
 
@@ -88,6 +90,7 @@ export default function InboxView({
   onSwitchAgent,
   onReasoningEffortChange,
   modelOptions,
+  modelCatalog,
   onModelChange,
 }: InboxViewProps) {
   const contentGridRef = useRef<HTMLDivElement>(null);
@@ -289,6 +292,7 @@ export default function InboxView({
             contextWindow={contextWindow}
             model={selectedAgent?.model}
             modelOptions={modelOptions}
+            modelCatalog={modelCatalog}
             onModelChange={onModelChange}
             reasoningEffort={undefined}
             onReasoningEffortChange={onReasoningEffortChange}

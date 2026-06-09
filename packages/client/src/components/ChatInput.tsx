@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type * as React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Brain, Paperclip, Pause, Send, X, Zap } from 'lucide-react';
-import type { ContentBlock } from '@berry-agent/claw-contracts';
+import { Brain, Paperclip, Pause, Send, X } from 'lucide-react';
+import type { ContentBlock, ModelCatalogItem } from '@berry-agent/claw-contracts';
 import type { AnnotationAttachment } from './WorkspaceRail';
 import { cn } from '../utils/cn';
-import { modelShortName, uniqueStrings } from '../utils/format';
+import { modelFamily } from '../utils/format';
+import { ModelPicker } from './ui/ModelPicker';
 
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'max' | 'xhigh';
 
@@ -18,6 +19,9 @@ interface ChatInputProps {
   contextWindow: number | null;
   model?: string;
   modelOptions: string[];
+  /** Full catalog (family + ctx) for the in-chat ModelPicker family-lock.
+   *  When absent we fall back to a plain list built from modelOptions. */
+  modelCatalog?: ModelCatalogItem[];
   onModelChange?: (model: string) => void;
   reasoningEffort?: ReasoningEffort;
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
@@ -53,6 +57,7 @@ export default function ChatInput({
   contextWindow,
   model,
   modelOptions,
+  modelCatalog,
   onModelChange,
   reasoningEffort,
   onReasoningEffortChange,
@@ -207,7 +212,18 @@ export default function ChatInput({
     await addFiles(e.dataTransfer.files);
   }, [addFiles]);
 
-  const modelChoices = uniqueStrings([model, ...modelOptions]);
+  // Prefer the rich catalog (family + ctx) so the in-chat switch can family-lock
+  // to the current model; fall back to a flat catalog synthesized from the bare
+  // model id list when the catalog hasn't loaded.
+  const catalog: ModelCatalogItem[] = modelCatalog?.length
+    ? modelCatalog
+    : [...new Set([model, ...modelOptions].filter((m): m is string => !!m))].map((m) => ({
+        model: m,
+        providerName: m.startsWith('tier:') ? 'tier' : '',
+        type: m.startsWith('tier:') ? 'tier' : 'model',
+        family: modelFamily(m),
+      }));
+  const lockFamily = modelFamily(model) ?? catalog.find((m) => m.model === model)?.family;
 
   return (
     <div className="relative rounded-3xl border border-white/[0.08] bg-[#1a1c20]/80 p-2 shadow-[0_24px_60px_-12px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)_inset] backdrop-blur-2xl transition-all duration-300">
@@ -408,21 +424,16 @@ export default function ChatInput({
                 )}
               </AnimatePresence>
             </div>
-            {modelChoices.length > 0 && (
-              <div className="flex items-center gap-1.5 rounded-full px-2 py-1 transition-colors hover:bg-white/[0.06]">
-                <Zap size={12} />
-                <select
-                  value={model ?? modelChoices[0] ?? ''}
-                  onChange={(e) => onModelChange?.(e.target.value)}
-                  className="cursor-pointer appearance-none bg-transparent text-[11px] text-zinc-400 outline-none transition-colors hover:text-zinc-200"
-                >
-                  {modelChoices.map((choice) => (
-                    <option key={choice} value={choice} className="bg-[#1a1c20] text-zinc-200">
-                      {modelShortName(choice)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {catalog.length > 0 && onModelChange && (
+              <ModelPicker
+                catalog={catalog}
+                value={model}
+                onSelect={onModelChange}
+                lockFamily={lockFamily}
+                placeholder="模型"
+                className="min-w-[120px]"
+                panelClassName="bottom-full mb-1 w-[min(360px,80vw)]"
+              />
             )}
           </div>
           <div className="font-mono text-[10px] tracking-wide opacity-50">

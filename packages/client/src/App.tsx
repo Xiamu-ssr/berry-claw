@@ -22,6 +22,8 @@ import {
 import { useActiveInstance } from './connection';
 import { factStore } from './facts/store';
 import { useAgentFacts, useFactHydration, useTeamFacts } from './facts/useFacts';
+import { listModelCatalog } from './a8s/agents';
+import type { ModelCatalogItem } from '@berry-agent/claw-contracts';
 import { SafetyAskDialog, type PendingSafetyAsk } from './components/SafetyAskDialog';
 import { useAgentRuntimes, type AgentRuntimeHandlers } from './chat/useAgentRuntimes';
 import { selectStreamingTimeline, type AgentRuntime } from './chat/runtime';
@@ -55,6 +57,7 @@ export default function App() {
   const activeAgent = agentFacts[0];
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(activeAgent?.id);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalogItem[]>([]);
   const selectedAgentIdRef = useRef<string | undefined>(selectedAgentId);
   selectedAgentIdRef.current = selectedAgentId;
   const selectedAgent = agentFacts.find((a) => a.id === selectedAgentId) ?? activeAgent;
@@ -187,6 +190,13 @@ export default function App() {
       setModelOptions(uniqueStrings([current, ...options]));
     } catch {
       setModelOptions([]);
+    }
+    // The full catalog (with family + ctx) powers the in-chat ModelPicker's
+    // family-lock; the bare string list above is kept for legacy call sites.
+    try {
+      setModelCatalog(await listModelCatalog());
+    } catch {
+      setModelCatalog([]);
     }
   }, []);
 
@@ -565,6 +575,7 @@ export default function App() {
               onSwitchAgent={handleSwitchAgent}
               onReasoningEffortChange={handleReasoningEffortChange}
               modelOptions={modelOptions}
+              modelCatalog={modelCatalog}
               onModelChange={handleModelChange}
             />
           )}

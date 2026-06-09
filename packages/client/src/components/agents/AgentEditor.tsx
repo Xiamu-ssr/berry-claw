@@ -1,50 +1,55 @@
-import { Bot, Save, X } from 'lucide-react';
-import type { ModelCatalogItem as ModelInfo, PromptPackInfo } from '@berry-agent/claw-contracts';
-import {
-  Field,
-  IconButton,
-  PrimaryButton,
-  SecondaryButton,
-  SectionCard,
-  SelectInput,
-  TextInput,
-} from '../workbench';
+import { Bot, Save } from 'lucide-react';
+import type { ModelCatalogItem as ModelInfo } from '@berry-agent/claw-contracts';
+import { Field, PrimaryButton, SecondaryButton, TextInput } from '../workbench';
+import { Modal } from '../ui/Modal';
+import { ModelPicker } from '../ui/ModelPicker';
+import { PickerButton } from '../ui/PickerButton';
+import { modelFamily } from '../../utils/format';
 import type { AgentForm } from './types';
 
+const REASONING_OPTS = [
+  { value: '', label: '继承 / 默认' },
+  { value: 'none', label: 'none' },
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'max', label: 'max' },
+  { value: 'xhigh', label: 'xhigh' },
+] as const;
+
+/**
+ * Edit an existing agent. The id is identity and immutable — shown as a
+ * read-only mono chip, never an input. Model + reasoning are picker-driven
+ * (the model picker family-locks to the current model's family so an edit
+ * can't break prompt caching). Rendered inside a Modal by AgentsPage.
+ */
 export function AgentEditor({
-  mode,
+  open,
   form,
   models,
-  promptPacks,
   onChange,
   onSave,
   onClose,
 }: {
-  mode: 'create' | 'edit';
+  open: boolean;
   form: AgentForm;
   models: ModelInfo[];
-  promptPacks: PromptPackInfo[];
   onChange: (next: AgentForm) => void;
   onSave: () => void;
   onClose: () => void;
 }) {
+  const family = modelFamily(form.model) ?? models.find((m) => m.model === form.model)?.family;
   return (
-    <SectionCard
-      title={mode === 'create' ? '新建智能体' : '编辑智能体'}
-      subtitle="Agent 身份由 workspace 目录和配置共同决定；项目绑定只决定它当前操作哪个代码根。"
-      icon={<Bot size={15} />}
-      action={<IconButton title="Close editor" onClick={onClose}><X size={14} /></IconButton>}
-    >
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Field label="Agent ID" hint={mode === 'edit' ? '不可修改' : '文件身份 key'}>
-          <TextInput
-            value={form.id}
-            disabled={mode === 'edit'}
-            onChange={(event) => onChange({ ...form, id: event.target.value.replace(/[^a-z0-9-_]/g, '') })}
-            placeholder="coder"
-            className="w-full font-mono"
-          />
-        </Field>
+    <Modal open={open} onClose={onClose} size="lg" className="!p-0">
+      <div className="flex items-center gap-2 border-b border-white/[0.07] px-5 py-4">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-400/15 text-sky-300"><Bot size={16} /></span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-zinc-100">编辑智能体</div>
+          <div className="truncate font-mono text-[11px] text-zinc-500">{form.id}</div>
+        </div>
+      </div>
+
+      <div className="space-y-4 px-5 py-5">
         <Field label="显示名">
           <TextInput
             value={form.name}
@@ -53,71 +58,31 @@ export function AgentEditor({
             className="w-full"
           />
         </Field>
-        <Field label="模型引用" hint="tier / model / raw / 裸 id">
-          <SelectInput
+        <Field label="模型" hint="档位 / 具体模型">
+          <ModelPicker
+            catalog={models}
             value={form.model}
-            onChange={(event) => onChange({ ...form, model: event.target.value })}
-            className="w-full"
-          >
-            {models.length === 0 && <option value={form.model}>{form.model || 'tier:balanced'}</option>}
-            {models.map((model) => (
-              <option key={model.model} value={model.model}>
-                {model.model} ({model.providerName})
-              </option>
-            ))}
-            {!models.some((model) => model.model === form.model) && form.model && (
-              <option value={form.model}>{form.model}</option>
-            )}
-          </SelectInput>
+            onSelect={(model) => onChange({ ...form, model })}
+            lockFamily={family}
+          />
         </Field>
         <Field label="推理强度">
-          <SelectInput
+          <PickerButton
+            options={REASONING_OPTS.map((o) => ({ value: o.value, label: o.label }))}
             value={form.reasoningEffort}
-            onChange={(event) => onChange({ ...form, reasoningEffort: event.target.value as AgentForm['reasoningEffort'] })}
-            className="w-full"
-          >
-            <option value="">继承 / 默认</option>
-            <option value="none">none</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-            <option value="max">max</option>
-            <option value="xhigh">xhigh</option>
-          </SelectInput>
-        </Field>
-        <Field label="提示词套件" hint="SDK PromptPack">
-          <SelectInput
-            value={form.promptPack}
-            onChange={(event) => onChange({ ...form, promptPack: event.target.value })}
-            className="w-full"
-          >
-            {promptPacks.length === 0 && <option value={form.promptPack}>{form.promptPack || 'berry-default-zh'}</option>}
-            {promptPacks.map((pack) => (
-              <option key={pack.id} value={pack.id}>
-                {pack.name} ({pack.id})
-              </option>
-            ))}
-            {!promptPacks.some((pack) => pack.id === form.promptPack) && form.promptPack && (
-              <option value={form.promptPack}>{form.promptPack}</option>
-            )}
-          </SelectInput>
-        </Field>
-        <Field label="项目根目录" hint="可为空">
-          <TextInput
-            value={form.project}
-            onChange={(event) => onChange({ ...form, project: event.target.value })}
-            placeholder="/Users/lanxuan/agent-workspace/berry-agent"
-            className="w-full font-mono"
+            onSelect={(v) => onChange({ ...form, reasoningEffort: v as AgentForm['reasoningEffort'] })}
+            placeholder="继承 / 默认"
           />
         </Field>
       </div>
-      <div className="mt-4 flex justify-end gap-2">
+
+      <div className="flex justify-end gap-2 border-t border-white/[0.07] px-5 py-3">
         <SecondaryButton onClick={onClose}>取消</SecondaryButton>
         <PrimaryButton onClick={onSave}>
           <Save size={14} />
           保存
         </PrimaryButton>
       </div>
-    </SectionCard>
+    </Modal>
   );
 }

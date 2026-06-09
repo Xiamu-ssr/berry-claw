@@ -2,18 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bot, Plus, RefreshCw } from 'lucide-react';
 import { showToast } from './Toast';
 import { AgentEditor } from './agents/AgentEditor';
+import { AgentCreateWizard, type AgentCreateValues } from './agents/AgentCreateWizard';
 import { AgentHero } from './agents/AgentHero';
 import { AgentListPane } from './agents/AgentListPane';
 import { AgentModulePanel } from './agents/AgentModules';
 import { emptyAgentForm, type AgentForm, type DetailTab, type InspectRuntime } from './agents/types';
 import { createAgent, deleteAgent as deleteAgentOnA8s, inspectAgent, listModelCatalog, patchAgentSpec } from '../a8s/agents';
 import { switchModel, setReasoningEffort } from '../a8s/data';
-import { useAgentFacts, useSystemFact } from '../facts/useFacts';
+import { useAgentFacts, useSystemFact, useTeamFacts } from '../facts/useFacts';
 import { factStore } from '../facts/store';
+import { uniqueStrings } from '../utils/format';
 import type {
   AgentFact,
   ModelCatalogItem as ModelInfo,
-  PromptPackInfo,
 } from '@berry-agent/claw-contracts';
 import {
   EmptyState,
@@ -25,6 +26,7 @@ import {
 
 export default function AgentsPage() {
   const agents = useAgentFacts();
+  const teams = useTeamFacts();
   const system = useSystemFact();
   const [selectedId, setSelectedId] = useState<string | undefined>(agents[0]?.id);
   const selected = agents.find((agent) => agent.id === selectedId) ?? agents[0];
@@ -32,11 +34,20 @@ export default function AgentsPage() {
   const [query, setQuery] = useState('');
   const [detailTab, setDetailTab] = useState<DetailTab>('context');
   const [models, setModels] = useState<ModelInfo[]>([]);
-  const [promptPacks, setPromptPacks] = useState<PromptPackInfo[]>([]);
   const [runtime, setRuntime] = useState<InspectRuntime | null>(null);
   const [loadingRuntime, setLoadingRuntime] = useState(false);
-  const [editorMode, setEditorMode] = useState<'create' | 'edit' | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<AgentForm>(emptyAgentForm);
+
+  // Known project roots come from team membership (an a8s AgentFact carries no
+  // project of its own), feeding the wizard's ProjectPicker.
+  const knownProjects = useMemo(
+    () => uniqueStrings(teams.map((t) => t.project)).sort(),
+    [teams],
+  );
+  const takenIds = useMemo(() => agents.map((a) => a.id), [agents]);
 
   useEffect(() => {
     if (!agents.length) {
@@ -56,13 +67,6 @@ export default function AgentsPage() {
     }
   }, []);
 
-  // Prompt packs are a not-yet-ported product surface (the console BFF owned
-  // them). a8s has no prompt-pack registry, so the picker degrades to the
-  // agent's current value rather than calling a dead route.
-  const refetchPromptPacks = useCallback(async () => {
-    setPromptPacks([]);
-  }, []);
-
   const loadInspect = useCallback(async (agentId: string) => {
     setLoadingRuntime(true);
     try {
@@ -77,8 +81,7 @@ export default function AgentsPage() {
 
   useEffect(() => {
     void refetchModels();
-    void refetchPromptPacks();
-  }, [refetchModels, refetchPromptPacks]);
+  }, [refetchModels]);
 
   useEffect(() => {
     if (!selected?.id) {
@@ -104,21 +107,11 @@ export default function AgentsPage() {
 
   const startCreate = () => {
     void refetchModels();
-    void refetchPromptPacks();
-    setEditorMode('create');
-    setDetailTab('context');
-    setForm({
-      ...emptyAgentForm(),
-      model: models[0]?.model ?? 'tier:balanced',
-      reasoningEffort: 'medium',
-      promptPack: promptPacks[0]?.id ?? 'berry-default-zh',
-    });
+    setWizardOpen(true);
   };
 
   const startEdit = (agent: AgentFact) => {
     void refetchModels();
-    void refetchPromptPacks();
-    setEditorMode('edit');
     setDetailTab('context');
     setForm({
       ...emptyAgentForm(),
@@ -126,47 +119,52 @@ export default function AgentsPage() {
       name: agent.name,
       model: agent.model,
     });
+    setEditorOpen(true);
   };
 
-  const closeEditor = () => {
-    setEditorMode(null);
-    setForm(emptyAgentForm());
+  const createFromWizard = async (values: AgentCreateValues) => {
+    setBusy(true);
+    try {
+      await createAgent({
+        agentId: values.agentId,
+        name: values.name,
+        model: values.model,
+        classifierModel: values.classifierModel,
+        reasoningEffort: values.reasoningEffort || undefined,
+        project: values.project,
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Create failed', 'error');
+      return;
+    } finally {
+      setBusy(false);
+    }
+    showToast('Agent created');
+    setWizardOpen(false);
+    setSelectedId(values.agentId);
+    void factStore.hydrate('agent');
+    window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: values.agentId }));
   };
 
-  const saveAgent = async () => {
+  const saveEdit = async () => {
     const id = form.id.trim();
-    const name = form.name.trim();
     const model = form.model.trim();
-    if (!id || !name || !model) {
-      showToast('Agent id, name, and model are required', 'error');
+    if (!id || !model) {
+      showToast('模型不能为空', 'error');
       return;
     }
-
     try {
-      if (editorMode === 'edit') {
-        // An existing agent: live-patch the mutable fields rather than
-        // re-create. Name is a label; a8s has no rename, so editing name is
-        // a no-op on the wire today — model/reasoning are what take effect.
-        await switchModel(id, model);
-        if (form.reasoningEffort) await setReasoningEffort(id, form.reasoningEffort);
-      } else {
-        await createAgent({
-          agentId: id,
-          name,
-          model,
-          reasoningEffort: form.reasoningEffort || undefined,
-          project: form.project.trim() || undefined,
-        });
-      }
+      // Live-patch the mutable fields; a8s has no rename, so name is a label
+      // only — model/reasoning are what take effect on the wire.
+      await switchModel(id, model);
+      if (form.reasoningEffort) await setReasoningEffort(id, form.reasoningEffort);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Save failed', 'error');
       return;
     }
-    showToast(editorMode === 'create' ? 'Agent created' : 'Agent updated');
-    setSelectedId(id);
-    closeEditor();
+    showToast('Agent updated');
+    setEditorOpen(false);
     void factStore.hydrate('agent');
-    window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: id }));
   };
 
   const activateAgent = async (agentId: string) => {
@@ -234,24 +232,11 @@ export default function AgentsPage() {
             onSelect={(id) => {
               setSelectedId(id);
               setDetailTab('context');
-              setEditorMode(null);
             }}
           />
         }
       >
         <div className="space-y-4 p-5">
-          {editorMode && (
-            <AgentEditor
-              mode={editorMode}
-              form={form}
-              models={models}
-              promptPacks={promptPacks}
-              onChange={setForm}
-              onSave={saveAgent}
-              onClose={closeEditor}
-            />
-          )}
-
           {!selected ? (
             <EmptyState
               icon={<Bot size={24} />}
@@ -289,6 +274,24 @@ export default function AgentsPage() {
           )}
         </div>
       </SplitWorkbench>
+
+      <AgentCreateWizard
+        open={wizardOpen}
+        catalog={models}
+        takenIds={takenIds}
+        knownProjects={knownProjects}
+        onCancel={() => setWizardOpen(false)}
+        onCreate={createFromWizard}
+        busy={busy}
+      />
+      <AgentEditor
+        open={editorOpen}
+        form={form}
+        models={models}
+        onChange={setForm}
+        onSave={saveEdit}
+        onClose={() => setEditorOpen(false)}
+      />
     </WorkbenchPage>
   );
 }
