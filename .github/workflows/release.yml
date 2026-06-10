@@ -148,6 +148,9 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job has no checkout, so gh can't infer the repo from a .git
+          # dir. GH_REPO tells `gh release` which repo to act on.
+          GH_REPO: ${{ github.repository }}
         run: |
           tag="${GITHUB_REF_NAME}"
           title="Berry Claw ${tag}"
