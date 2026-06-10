@@ -45,11 +45,11 @@
     "build": "tsc -b --force"
   },
   "dependencies": {
+    "@berry-agent/cluster-protocol": "file:../../../berry-agent-sdk/packages/cluster-protocol",
     "@berry-agent/core": "^0.5.0-alpha.1",
     "@berry-agent/mcp": "file:../../../berry-agent-sdk/packages/mcp",
     "@berry-agent/models": "^0.5.0-alpha.1",
     "@berry-agent/safe": "^0.5.0-alpha.1",
-    "@berry-agent/team": "^0.5.0-alpha.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {

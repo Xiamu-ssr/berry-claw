@@ -15,7 +15,6 @@ import {
   providerInstanceSchema,
   providerTypeSchema,
 } from '@berry-agent/models';
-import { zTeamMessage, zTeamState, zWorklistTask } from '@berry-agent/team/schema';
 import type {
   ModelBinding,
   ModelProviderRef,
@@ -23,10 +22,12 @@ import type {
   ProviderPreset,
   TierId,
 } from '@berry-agent/models';
-import type { TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/team/types';
 import { zSafetyLevel } from './safety.js';
 
-export type { TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/team/types';
+// Emergent-team shared shapes live in cluster-protocol now (the legacy
+// file-based @berry-agent/team package is gone). Re-exported here so claw
+// consumers keep importing them from claw-contracts.
+export type { TeamMessage, WorklistTask, WorklistTaskStatus } from '@berry-agent/cluster-protocol';
 
 export const zFactsResponse = z.object({
   changes: z.array(zFactChange),
@@ -213,37 +214,6 @@ export const zMcpEnabledRequest = z.object({
   enabled: z.boolean(),
 }).strict();
 export type McpEnabledRequest = z.infer<typeof zMcpEnabledRequest>;
-
-export const zTeamStartRequest = z.object({
-  name: z.string().optional(),
-}).strict();
-export type TeamStartRequest = z.infer<typeof zTeamStartRequest>;
-
-export const zTeamsResponse = z.object({
-  teams: z.array(z.object({
-    leaderId: z.string().min(1),
-    leaderName: z.string().min(1),
-    state: zTeamState,
-  })),
-});
-export type TeamsResponse = {
-  teams: Array<{ leaderId: string; leaderName: string; state: TeamState }>;
-};
-
-export const zAgentTeamResponse = z.object({
-  team: zTeamState.nullable(),
-});
-export type AgentTeamResponse = { team: TeamState | null };
-
-export const zTeamMessagesResponse = z.object({
-  messages: z.array(zTeamMessage),
-});
-export type TeamMessagesResponse = { messages: TeamMessage[] };
-
-export const zTeamWorklistResponse = z.object({
-  tasks: z.array(zWorklistTask),
-});
-export type TeamWorklistResponse = { tasks: WorklistTask[] };
 
 export const zModelCatalogItem = z.object({
   model: z.string().min(1),
