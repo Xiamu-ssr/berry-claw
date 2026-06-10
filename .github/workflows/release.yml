@@ -55,7 +55,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        # Mac is the only supported desktop target (Electron shell carries
+        # Chromium for the 圈画 feature; see AGENTS.md). Windows/Linux were
+        # dropped: the product ships a Mac DMG + Android APK only, and the SDK
+        # build scripts use `rm -rf` which the Windows runner's cmd shell can't
+        # run — there's no reason to keep a platform we don't ship blocking the
+        # release's publish gate.
+        os: [macos-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,10 +91,6 @@ jobs:
           path: |
             berry-claw/packages/desktop/dist/**/*.dmg
             berry-claw/packages/desktop/dist/**/*.zip
-            berry-claw/packages/desktop/dist/**/*.exe
-            berry-claw/packages/desktop/dist/**/*.AppImage
-            berry-claw/packages/desktop/dist/**/*.deb
-            berry-claw/packages/desktop/dist/**/*.rpm
           if-no-files-found: ignore
 
   android:
