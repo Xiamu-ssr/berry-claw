@@ -121,6 +121,11 @@ jobs:
       - run: npm run build
         working-directory: berry-agent-sdk
       - run: npm ci
+      # capacitor's webDir is ../client/dist — it must exist BEFORE `cap add
+      # android`, which copies the web assets at platform-add time. Build the
+      # front-end first or `cap add` fails with "Could not find the web assets
+      # directory". (apk:debug re-syncs, but add must succeed first.)
+      - run: npm run build
       - run: npm -w @berry-agent/claw-mobile run add:android
       - run: npm -w @berry-agent/claw-mobile run apk:debug
       - uses: actions/upload-artifact@v4
