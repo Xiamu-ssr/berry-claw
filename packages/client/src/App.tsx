@@ -5,7 +5,6 @@ import { Loader2, PanelLeftOpen } from 'lucide-react';
 import { useA8sChat } from './hooks/useA8sChat';
 import ToastContainer, { useToast } from './components/Toast';
 import type { SessionListItem } from './components/workspace/types';
-import type { ReasoningEffort } from './components/ChatInput';
 import { useProjectSummaries } from './projects/summary';
 import type { ContentBlock, WsIncoming } from '@berry-agent/claw-contracts';
 import {
@@ -15,22 +14,18 @@ import {
   fetchSessionTodos as fetchSessionTodosFromA8s,
   createSession as createSessionOnA8s,
   resumeSession as resumeSessionOnA8s,
-  fetchModelOptions as fetchModelOptionsFromA8s,
-  switchModel as switchModelOnA8s,
-  setReasoningEffort as setReasoningEffortOnA8s,
 } from './a8s/data';
 import { useActiveInstance } from './connection';
 import { factStore } from './facts/store';
 import { useAgentFacts, useFactHydration, useTeamFacts } from './facts/useFacts';
-import { listModelCatalog } from './a8s/agents';
-import type { ModelCatalogItem } from '@berry-agent/claw-contracts';
+import { useModelControls } from './hooks/useModelControls';
 import { SafetyAskDialog, type PendingSafetyAsk } from './components/SafetyAskDialog';
 import { useAgentRuntimes, type AgentRuntimeHandlers } from './chat/useAgentRuntimes';
 import { selectStreamingTimeline, type AgentRuntime } from './chat/runtime';
 import { ClientSidebar, MobileTopNav } from './components/app/AppNavigation';
 import type { ClientView } from './components/app/types';
 import InboxView from './components/inbox/InboxView';
-import { genId, uniqueStrings } from './utils/format';
+import { genId } from './utils/format';
 
 const SettingsPage = lazy(() => import('./components/SettingsPage'));
 const AgentsPage = lazy(() => import('./components/AgentsPage'));
@@ -56,8 +51,6 @@ export default function App() {
   // of truth for which agent the user is viewing.
   const activeAgent = agentFacts[0];
   const [selectedAgentId, setSelectedAgentId] = useState<string | undefined>(activeAgent?.id);
-  const [modelOptions, setModelOptions] = useState<string[]>([]);
-  const [modelCatalog, setModelCatalog] = useState<ModelCatalogItem[]>([]);
   const selectedAgentIdRef = useRef<string | undefined>(selectedAgentId);
   selectedAgentIdRef.current = selectedAgentId;
   const selectedAgent = agentFacts.find((a) => a.id === selectedAgentId) ?? activeAgent;
@@ -65,6 +58,17 @@ export default function App() {
   const toast = useToast();
   const toastRef = useRef(toast);
   toastRef.current = toast;
+
+  const {
+    modelOptions,
+    modelCatalog,
+    refreshModelOptions,
+    handleModelChange,
+    handleReasoningEffortChange,
+  } = useModelControls(selectedAgentIdRef, toastRef, {
+    id: activeInstance?.id,
+    apiBase: activeInstance?.apiBase,
+  });
 
   useFactHydration();
 
@@ -183,26 +187,6 @@ export default function App() {
   const streamingEvents = streamingSelection.events;
   const streamingTimeline = streamingSelection.timeline;
   const streamingInferences = streamingSelection.inferences;
-
-  const refreshModelOptions = useCallback(async () => {
-    try {
-      const { current, options } = await fetchModelOptionsFromA8s(selectedAgentIdRef.current);
-      setModelOptions(uniqueStrings([current, ...options]));
-    } catch {
-      setModelOptions([]);
-    }
-    // The full catalog (with family + ctx) powers the in-chat ModelPicker's
-    // family-lock; the bare string list above is kept for legacy call sites.
-    try {
-      setModelCatalog(await listModelCatalog());
-    } catch {
-      setModelCatalog([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshModelOptions();
-  }, [activeInstance?.id, activeInstance?.apiBase, refreshModelOptions]);
 
   useEffect(() => {
     if (!agentFacts.length) {
@@ -386,40 +370,6 @@ export default function App() {
       reason: 'paused from client',
     });
   }, [activeSessionId, send]);
-
-  const handleReasoningEffortChange = useCallback(async (effort: ReasoningEffort) => {
-    const agentId = selectedAgentIdRef.current;
-    if (!agentId) return;
-    try {
-      await setReasoningEffortOnA8s(agentId, effort);
-    } catch (err) {
-      console.error('[reasoning] failed to update:', err);
-    }
-  }, []);
-
-  const handleModelChange = useCallback(async (model: string) => {
-    const nextModel = model.trim();
-    if (!nextModel) return;
-    const agentId = selectedAgentIdRef.current;
-    if (!agentId) return;
-    try {
-      await switchModelOnA8s(agentId, nextModel);
-      setModelOptions((prev) => uniqueStrings([nextModel, ...prev]));
-      toastRef.current.show({
-        variant: 'info',
-        title: '模型已切换',
-        message: nextModel,
-        durationMs: 2500,
-      });
-    } catch (err) {
-      toastRef.current.show({
-        variant: 'error',
-        title: '模型切换失败',
-        message: err instanceof Error ? err.message : String(err),
-        durationMs: 5000,
-      });
-    }
-  }, []);
 
   const handleNewSession = useCallback(async () => {
     if (isLoading || creatingSession) return;
