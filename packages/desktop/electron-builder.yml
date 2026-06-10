@@ -13,6 +13,19 @@ mac:
   target:
     - dmg
     - zip
+# Drag-to-install layout: app icon on the left, an Applications alias on the
+# right, so the user drags Berry Claw → Applications. This is the standard
+# macOS install gesture (replaces the old bare double-click-the-app image).
+dmg:
+  title: Berry Claw
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
 win:
   target:
     - nsis
