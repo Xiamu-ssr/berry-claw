@@ -9,7 +9,6 @@
  *   berry-claw setup           First-time setup wizard (config, deps, browser)
  *   berry-claw doctor          Environment self-check (deps, runtimes, config)
  *   berry-claw install browser Install browser runtime (Playwright Chromium)
- *   berry-claw key             Manage instance auth keys
  *   berry-claw version         Print version
  *   berry-claw help            Show this help
  */
@@ -22,7 +21,7 @@ const __dirname = dirname(__filename);
 const pkgPath = resolve(__dirname, '..', 'package.json');
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { name: string; version: string };
 
-type Command = 'start' | 'setup' | 'doctor' | 'install' | 'key' | 'version' | 'help';
+type Command = 'start' | 'setup' | 'doctor' | 'install' | 'version' | 'help';
 
 function parseArgs(argv: string[]): { cmd: Command; rest: string[] } {
   const [first, ...rest] = argv;
@@ -34,7 +33,6 @@ function parseArgs(argv: string[]): { cmd: Command; rest: string[] } {
     case 'setup': return { cmd: 'setup', rest };
     case 'doctor': return { cmd: 'doctor', rest };
     case 'install': return { cmd: 'install', rest };
-    case 'key': return { cmd: 'key', rest };
     case 'version':
     case '--version':
     case '-v':
@@ -61,7 +59,6 @@ Commands:
   setup                     First-time setup wizard
   doctor                    Environment self-check
   install browser           Install browser runtime (Playwright Chromium)
-  key gen|reset|show|verify Manage instance auth keys
   version                   Print version
   help                      Show this help
 
@@ -109,13 +106,6 @@ async function main(): Promise<void> {
     case 'install': {
       const { runInstall } = await import('./cli/install.js');
       const ok = await runInstall(rest);
-      process.exitCode = ok ? 0 : 1;
-      return;
-    }
-
-    case 'key': {
-      const { runKey } = await import('./cli/key.js');
-      const ok = await runKey(rest);
       process.exitCode = ok ? 0 : 1;
       return;
     }

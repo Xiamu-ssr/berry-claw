@@ -3,43 +3,38 @@ import { z } from 'zod';
 /**
  * A berry-claw client-side instance record.
  *
- * The client shell persists these locally to remember
- * which backends the user has connected to. The CLI may eventually import this
- * type to emit ready-to-paste JSON alongside `key show`, so keep it stable.
+ * The client shell persists these locally to remember which a8s control planes
+ * the user has connected to. berry-claw talks to a8s DIRECTLY: an instance is
+ * just an a8s endpoint plus the bearer token an operator handed the user
+ * (a `bp_…` product root token, or a `bs_…` subject-scoped token). There is no
+ * console/BFF in the middle and no challenge/verify handshake — the browser
+ * sends the token straight to a8s.
  *
- * Private key material is stored in `privateKeyPem` (PEM, Ed25519). At the
- * browser-only stage this lives in `localStorage`; native mobile/desktop shells
- * should route it through platform secure storage with the same shape.
+ * At the browser-only stage this lives in `localStorage`; native
+ * mobile/desktop shells should route the token through platform secure storage
+ * with the same shape.
  */
 export const zInstance = z.object({
   /** Locally unique id (crypto.randomUUID). */
   id: z.string().min(1),
   /** Human-friendly label shown in the picker. */
   name: z.string().min(1).max(64),
-  /** Absolute REST base, e.g. http://localhost:3210 (no trailing slash). */
+  /** Absolute a8s REST base, e.g. http://host:28789 (no trailing slash). */
   apiBase: z.string().url(),
-  /** Absolute WS base, e.g. ws://localhost:3210 (no trailing slash). */
+  /** Absolute a8s WS base, e.g. ws://host:28789 (no trailing slash). */
   wsBase: z.string().url(),
   /**
-   * Server's own instance id (ULID) — discovered from the first successful
-   * `/api/auth/challenge` response, cached here for drift detection. Optional
-   * so freshly-parsed records that haven't been verified yet still validate.
+   * The a8s bearer token the user pasted — a `bp_…` product root token or a
+   * `bs_…` subject-scoped token. a8s resolves it to an owner scope; berry-claw
+   * never inspects it beyond sending it as `Authorization: Bearer <token>`.
    */
-  serverInstanceId: z.string().optional(),
-  /**
-   * SSH-style server fingerprint (SHA256:xxxx). Fetched from the server on
-   * first connect via `GET /api/auth/instance`. Optional at the type level
-   * because it may be briefly absent between "user typed an endpoint" and
-   * "probe succeeded".
-   */
-  fingerprint: z.string().min(1).optional(),
-  /** Ed25519 private key, PEM-encoded (the body from `berry-claw key show`). */
-  privateKeyPem: z.string().min(1),
+  token: z.string().min(1),
   /** Creation timestamp (ms since epoch). */
   addedAt: z.number().int().nonnegative(),
   /**
    * Last failed-auth timestamp, if any. The picker uses this to surface a
-   * "re-add key" hint without blocking unrelated instances.
+   * "token rejected — paste a fresh one" hint without blocking unrelated
+   * instances.
    */
   lastAuthError: z
     .object({

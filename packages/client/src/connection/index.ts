@@ -13,7 +13,6 @@ export {
   getActiveInstance,
   getInstanceById,
   getStorageError,
-  duplicateFingerprint,
   duplicateApiBase,
   // Mutate
   addInstance,
@@ -26,17 +25,4 @@ export {
   useActiveInstanceId,
 } from './store';
 
-export {
-  parseEd25519PrivateKeyPem,
-  normaliseEndpoint,
-  wsBaseFromApiBase,
-  InvalidPemError,
-} from './parse';
-
-export { fetchServerIdentity, type ServerIdentity } from './identity';
-
-export { signChallenge, signChallengeSync } from './crypto';
-
-export { ensureToken, refreshToken, AuthFlowError } from './authFlow';
-
-export { getToken, clearToken, clearAllTokens, type CachedToken } from './tokenCache';
+export { normaliseEndpoint, wsBaseFromApiBase } from './parse';

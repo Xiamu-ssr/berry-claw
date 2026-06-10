@@ -1,9 +1,6 @@
 import { useState } from 'react';
-import { Check, Copy, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
-  InvalidPemError,
-  ensureToken,
-  parseEd25519PrivateKeyPem,
   removeInstance,
   setActive,
   updateInstance,
@@ -11,17 +8,16 @@ import {
   useInstances,
   type Instance,
 } from '../connection';
-import { clearToken } from '../connection';
 import { ConnectSetupScreen } from './ConnectSetupScreen';
 import { Modal, ModalBody, ModalFooter, ModalHeader } from './ui/Modal';
 
 /**
  * Settings → Connections tab.
  *
- * Lists every Instance with: name, server endpoint, fingerprint, active badge,
- * and a row of actions (activate, rename, replace key, remove). "+ Add" opens
- * the ConnectSetupScreen in modal mode; "Replace key" opens a minimal
- * "paste PEM" dialog that pre-flights the new key before persisting.
+ * Lists every Instance with: name, a8s endpoint, active badge, and a row of
+ * actions (activate, rename, replace token, remove). "+ Add" opens the
+ * ConnectSetupScreen in modal mode; "Replace token" opens a minimal "paste
+ * token" dialog that pre-flights the new token against a8s before persisting.
  *
  * This file is intentionally the one place in the client that mutates the
  * connection store directly — other components read through the hooks.
@@ -40,8 +36,8 @@ export function ConnectionsTab() {
         <div>
           <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Connections</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Each connection is a berry-claw server instance. Switch at any time; private keys
-            stay on this machine.
+            Each connection is an 雪山引擎 (a8s) endpoint + access token. Switch at
+            any time; tokens stay on this machine.
           </p>
         </div>
         <button
@@ -74,7 +70,7 @@ export function ConnectionsTab() {
               onReplaceKey={() => setReplaceFor(inst)}
               onRemove={() => {
                 const ok = window.confirm(
-                  `Remove connection "${inst.name}"? This deletes the private key from this machine.`,
+                  `Remove connection "${inst.name}"? This deletes the access token from this machine.`,
                 );
                 if (ok) removeInstance(inst.id);
               }}
@@ -101,8 +97,8 @@ export function ConnectionsTab() {
         </ModalBody>
       </Modal>
 
-      {/* Replace private key modal */}
-      <ReplaceKeyModal
+      {/* Replace access token modal */}
+      <ReplaceTokenModal
         instance={replaceFor}
         onClose={() => setReplaceFor(null)}
       />
@@ -132,18 +128,6 @@ function InstanceRow({
   onRemove: () => void;
 }) {
   const [draftName, setDraftName] = useState(instance.name);
-  const [copied, setCopied] = useState(false);
-
-  const copyFingerprint = async () => {
-    if (!instance.fingerprint) return;
-    try {
-      await navigator.clipboard.writeText(instance.fingerprint);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard not available; ignore */
-    }
-  };
 
   return (
     <li className="py-3 flex items-start gap-3">
@@ -192,18 +176,6 @@ function InstanceRow({
         <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 font-mono break-all">
           {instance.apiBase}
         </div>
-        {instance.fingerprint && (
-          <div className="mt-1 text-[11px] text-gray-400 dark:text-gray-500 font-mono break-all flex items-center gap-1.5">
-            <span>{instance.fingerprint}</span>
-            <button
-              onClick={copyFingerprint}
-              title="Copy fingerprint"
-              className="hover:text-gray-600 dark:hover:text-gray-300"
-            >
-              {copied ? <Check size={11} /> : <Copy size={11} />}
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
@@ -217,7 +189,7 @@ function InstanceRow({
         )}
         <button
           onClick={onReplaceKey}
-          title="Replace private key"
+          title="Replace access token"
           className="p-1.5 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
         >
           <KeyRound size={14} />
@@ -256,14 +228,14 @@ function ConnectSetupScreenInline({ onDone }: { onDone: () => void }) {
   );
 }
 
-function ReplaceKeyModal({
+function ReplaceTokenModal({
   instance,
   onClose,
 }: {
   instance: Instance | null;
   onClose: () => void;
 }) {
-  const [pem, setPem] = useState('');
+  const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -271,34 +243,35 @@ function ReplaceKeyModal({
 
   const submit = async () => {
     setError(null);
-    try {
-      parseEd25519PrivateKeyPem(pem);
-    } catch (e) {
-      setError(
-        e instanceof InvalidPemError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : String(e),
-      );
+    const tok = token.trim();
+    if (!tok) {
+      setError('Paste the new access token.');
       return;
     }
     setBusy(true);
-    // Preflight: prove the new key still authenticates against this server
-    // before persisting. We use a temporary instance shape; if it works the
-    // real update replaces the stored PEM.
-    const candidate: Instance = { ...instance, privateKeyPem: pem.trim() };
+    // Preflight: prove the new token authenticates against a8s before saving.
     try {
-      clearToken(instance.id); // force fresh challenge with new key
-      await ensureToken(candidate);
+      const res = await fetch(`${instance.apiBase}/v1/agents`, {
+        headers: { authorization: `Bearer ${tok}` },
+      });
+      if (res.status === 401 || res.status === 403) {
+        setBusy(false);
+        setError('a8s rejected the token (401). Paste a fresh bp_… / bs_… token.');
+        return;
+      }
+      if (!res.ok) {
+        setBusy(false);
+        setError(`a8s returned ${res.status} ${res.statusText}.`);
+        return;
+      }
     } catch (e) {
       setBusy(false);
-      setError(`Server rejected the new key: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Could not reach a8s: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
-    updateInstance(instance.id, { privateKeyPem: pem.trim() });
+    updateInstance(instance.id, { token: tok, lastAuthError: undefined });
     setBusy(false);
-    setPem('');
+    setToken('');
     onClose();
   };
 
@@ -306,20 +279,22 @@ function ReplaceKeyModal({
     <Modal open={!!instance} onClose={busy ? undefined : onClose} size="lg">
       <ModalHeader>
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-          Replace private key · {instance.name}
+          Replace access token · {instance.name}
         </h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Paste a new PKCS#8 PEM. We'll verify it against the server before saving.
+          Paste a new bp_… / bs_… token. We'll verify it against a8s before saving.
         </p>
       </ModalHeader>
       <ModalBody>
-        <textarea
-          value={pem}
-          onChange={(e) => setPem(e.target.value)}
-          placeholder={'-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'}
-          rows={6}
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="bp_… or bs_…"
           disabled={busy}
-          className="w-full px-3 py-2 text-xs font-mono rounded bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 focus:outline-none"
+          autoComplete="off"
+          spellCheck={false}
+          className="w-full px-3 py-2 text-sm font-mono rounded bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 focus:outline-none"
         />
         {error && (
           <div className="text-xs text-red-500 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded px-3 py-2 whitespace-pre-wrap">
@@ -337,7 +312,7 @@ function ReplaceKeyModal({
         </button>
         <button
           onClick={submit}
-          disabled={busy || !pem.trim()}
+          disabled={busy || !token.trim()}
           className="px-3 py-1.5 text-sm rounded bg-sky-300 hover:bg-sky-200 text-slate-950 disabled:opacity-50"
         >
           {busy ? 'Verifying…' : 'Replace'}

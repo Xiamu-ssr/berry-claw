@@ -1,14 +1,9 @@
 import { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, KeyRound, Loader2, PlugZap, Server } from 'lucide-react';
 import {
-  InvalidPemError,
   addInstance,
   duplicateApiBase,
-  duplicateFingerprint,
-  ensureToken,
-  fetchServerIdentity,
   normaliseEndpoint,
-  parseEd25519PrivateKeyPem,
   setActive,
   wsBaseFromApiBase,
   type Instance,
@@ -18,20 +13,18 @@ import { DEFAULT_DEV_API_BASE } from '../connection/constants';
 /**
  * Full-screen "add your first (or next) connection" form.
  *
- * Two real inputs:
- *   1. **Server endpoint** — e.g. `http://localhost:3210`. We accept sloppy
- *      input (missing scheme, trailing slash) and normalise.
- *   2. **Private key PEM** — pasted from `berry-claw key show`.
+ * berry-claw connects to a8s DIRECTLY — no console/BFF, no key handshake. So
+ * there are two real inputs:
+ *   1. **a8s endpoint** — e.g. `http://host:28789`. We accept sloppy input
+ *      (missing scheme, trailing slash) and normalise.
+ *   2. **Access token** — the `bp_…` / `bs_…` bearer an operator handed you.
  *
  * On submit:
- *   a. Parse PEM (cheap, sync). Any format error surfaces before we hit the
- *      network.
- *   b. Probe `/api/auth/instance` (public, unauth) to pin down fingerprint +
- *      server instance id. Doubles as a reachability check.
- *   c. Run one real challenge/verify round-trip. If the server rejects the
- *      key we show the error and **nothing** lands in localStorage — no
- *      half-configured zombies.
- *   d. Persist + activate. The Gate re-renders into the main app.
+ *   a. Normalise the endpoint (cheap, sync).
+ *   b. Make one real authed call to a8s (`GET /v1/agents`) with the token. This
+ *      proves reachability AND that the token is valid in one shot. A 401 means
+ *      a bad/expired token; a network error means a bad endpoint.
+ *   c. Persist + activate only on success — no half-configured zombies.
  *
  * `VITE_API_BASE` can override the development default. The user-entered
  * endpoint always wins.
@@ -52,20 +45,12 @@ export function ConnectSetupScreen({
 
   const [name, setName] = useState('');
   const [endpoint, setEndpoint] = useState(defaultEndpoint);
-  const [pem, setPem] = useState('');
+  const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // The submit path is two distinct network legs (reach the server, then run
-  // a real challenge/verify). On a slow link a single "Verifying" spinner
-  // leaves the user guessing which leg is hanging — exactly when first-time
-  // connect already feels fragile. Track the phase so the button names the
-  // leg in flight; `busy` is derived for disabling controls.
-  const [phase, setPhase] = useState<Phase>('idle');
-  const busy = phase !== 'idle';
+  const [busy, setBusy] = useState(false);
 
-  // Inline, pre-submit validation. These reuse the same sync parsers the
-  // submit path runs, so a green check here means the cheap checks will pass
-  // — the network round-trip is the only thing left. Empty input is neutral
-  // (no nag before the user has typed anything).
+  // Inline, pre-submit validation for the endpoint (cheap, sync). Empty input
+  // is neutral (no nag before the user has typed anything).
   const endpointHint = useMemo<Hint>(() => {
     if (!endpoint.trim()) return { kind: 'idle' };
     try {
@@ -75,21 +60,13 @@ export function ConnectSetupScreen({
     }
   }, [endpoint]);
 
-  const pemHint = useMemo<Hint>(() => {
-    if (!pem.trim()) return { kind: 'idle' };
-    try {
-      parseEd25519PrivateKeyPem(pem);
-      return { kind: 'ok', text: 'Valid Ed25519 private key' };
-    } catch (e) {
-      return {
-        kind: 'warn',
-        text:
-          e instanceof InvalidPemError
-            ? e.message
-            : `Invalid key: ${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-  }, [pem]);
+  const tokenHint = useMemo<Hint>(() => {
+    const t = token.trim();
+    if (!t) return { kind: 'idle' };
+    if (t.startsWith('bp_')) return { kind: 'ok', text: 'Product token (sees all of a product\'s agents)' };
+    if (t.startsWith('bs_')) return { kind: 'ok', text: 'Subject token (sees one user\'s agents)' };
+    return { kind: 'warn', text: 'Expected a bp_… or bs_… token from the operator' };
+  }, [token]);
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -104,15 +81,9 @@ export function ConnectSetupScreen({
       return;
     }
 
-    // --- PEM parse (cheap, sync).
-    try {
-      parseEd25519PrivateKeyPem(pem);
-    } catch (e) {
-      setError(
-        e instanceof InvalidPemError
-          ? e.message
-          : `Invalid private key: ${e instanceof Error ? e.message : String(e)}`,
-      );
+    const tok = token.trim();
+    if (!tok) {
+      setError('Paste the access token the operator gave you.');
       return;
     }
 
@@ -126,71 +97,44 @@ export function ConnectSetupScreen({
       if (!ok) return;
     }
 
-    // Leg 1: reach the server and pin its identity.
-    setPhase('probing');
-
-    // --- Probe server identity (public endpoint; also proves reachability).
-    let identity: Awaited<ReturnType<typeof fetchServerIdentity>>;
+    // One real authed call to a8s: proves reachability + token validity. We
+    // hit /v1/agents (product-scoped) rather than /v1/health (open) so a bad
+    // token is caught now, not on the first real request.
+    setBusy(true);
     try {
-      identity = await fetchServerIdentity(apiBase);
-    } catch (e) {
-      setPhase('idle');
-      setError(
-        `Could not reach ${apiBase}: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      return;
-    }
-
-    // A second, stricter dedupe: if we already have this server's fingerprint
-    // under a *different* apiBase (e.g. user switched from IP to hostname),
-    // prefer to overwrite that record too.
-    const fpDup = duplicateFingerprint(identity.fingerprint);
-    if (fpDup && fpDup.id !== dup?.id) {
-      const ok = window.confirm(
-        `This server is already known as "${fpDup.name}" (${fpDup.apiBase}). Replace it?`,
-      );
-      if (!ok) {
-        setPhase('idle');
+      const res = await fetch(`${apiBase}/v1/agents`, {
+        headers: { authorization: `Bearer ${tok}` },
+      });
+      if (res.status === 401 || res.status === 403) {
+        setBusy(false);
+        setError('a8s rejected the token (401). Paste a fresh bp_… / bs_… token.');
         return;
       }
-    }
-
-    const derivedName =
-      name.trim() ||
-      identity.hostname ||
-      new URL(apiBase).hostname ||
-      'berry-claw';
-
-    const candidate: Instance = {
-      id: dup?.id ?? fpDup?.id ?? createClientId(),
-      name: derivedName,
-      apiBase,
-      wsBase: wsBaseFromApiBase(apiBase),
-      serverInstanceId: identity.instanceId,
-      fingerprint: identity.fingerprint,
-      privateKeyPem: pem.trim(),
-      addedAt: Date.now(),
-    };
-
-    // Leg 2: a real challenge/verify round-trip against the key.
-    setPhase('verifying');
-
-    // --- Preflight challenge/verify. If this fails we do NOT persist.
-    try {
-      await ensureToken(candidate);
+      if (!res.ok) {
+        setBusy(false);
+        setError(`a8s returned ${res.status} ${res.statusText}. Check the endpoint.`);
+        return;
+      }
     } catch (e) {
-      setPhase('idle');
-      setError(
-        `Server rejected the key: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      setBusy(false);
+      setError(`Could not reach ${apiBase}: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
+
+    const candidate: Instance = {
+      id: dup?.id ?? createClientId(),
+      name: name.trim() || new URL(apiBase).hostname || 'a8s',
+      apiBase,
+      wsBase: wsBaseFromApiBase(apiBase),
+      token: tok,
+      addedAt: Date.now(),
+    };
 
     // All clear — persist and activate. The Gate will re-render and hand us
     // off to the real app.
     addInstance(candidate);
     setActive(candidate.id);
-    setPhase('idle');
+    setBusy(false);
   };
 
   return (
@@ -207,11 +151,8 @@ export function ConnectSetupScreen({
             <div className="min-w-0">
               <h1 className="text-base font-semibold text-zinc-50">{title}</h1>
               <p className="mt-1 text-sm leading-5 text-zinc-500">
-                Point at a berry-claw server and paste the private key from{' '}
-                <code className="rounded-md border border-white/[0.08] bg-black/10 px-1.5 py-0.5 font-mono text-[12px] text-zinc-300">
-                  berry-claw key show
-                </code>
-                .
+                Point at a 雪山引擎 (a8s) endpoint and paste the access token an
+                operator gave you.
               </p>
             </div>
           </div>
@@ -227,7 +168,7 @@ export function ConnectSetupScreen({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. laptop-dev"
+              placeholder="e.g. my-workspace"
               disabled={busy}
               className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
             />
@@ -236,7 +177,7 @@ export function ConnectSetupScreen({
           <label className="block">
             <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500">
               <PlugZap size={13} />
-              Server endpoint
+              a8s endpoint
             </span>
             <input
               type="text"
@@ -252,17 +193,19 @@ export function ConnectSetupScreen({
           <label className="block">
             <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-zinc-500">
               <KeyRound size={13} />
-              Private key (PEM)
+              Access token
             </span>
-            <textarea
-              value={pem}
-              onChange={(e) => setPem(e.target.value)}
-              placeholder={'-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'}
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="bp_… or bs_…"
               disabled={busy}
-              rows={7}
-              className="w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 py-2 font-mono text-xs leading-5 text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#24282e]/75 px-3 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-600 transition-colors focus:border-sky-300/45 focus:bg-[#262c33] disabled:opacity-50"
             />
-            <HintLine hint={pemHint} />
+            <HintLine hint={tokenHint} />
             <span className="mt-1.5 block text-[11px] leading-4 text-zinc-600">
               Stored locally in plain text until Electron safeStorage lands. Treat this
               machine as trusted.
@@ -289,31 +232,16 @@ export function ConnectSetupScreen({
           )}
           <button
             type="submit"
-            disabled={busy || !endpoint.trim() || !pem.trim()}
+            disabled={busy || !endpoint.trim() || !token.trim()}
             className="inline-flex h-9 items-center gap-2 rounded-lg bg-sky-200 px-4 text-sm font-medium text-slate-950 shadow-[0_8px_24px_rgba(125,211,252,0.16)] transition-colors hover:bg-sky-100 disabled:opacity-40"
           >
             {busy && <Loader2 size={14} className="animate-spin" />}
-            {phaseLabel(phase)}
+            {busy ? 'Connecting' : 'Connect'}
           </button>
         </div>
       </form>
     </div>
   );
-}
-
-type Phase = 'idle' | 'probing' | 'verifying';
-
-// Name the leg in flight so a slow connect tells the user *what* is hanging:
-// reaching the server vs. proving the key. Idle just says "Connect".
-function phaseLabel(phase: Phase): string {
-  switch (phase) {
-    case 'probing':
-      return 'Reaching server';
-    case 'verifying':
-      return 'Verifying key';
-    default:
-      return 'Connect';
-  }
 }
 
 type Hint =

@@ -1,54 +1,13 @@
 import { z } from 'zod';
 
-export const zAuthChallengeRequest = z.object({
-  clientPubkeyFingerprint: z.string().optional(),
-});
-export type AuthChallengeRequest = z.infer<typeof zAuthChallengeRequest>;
-
-export const zAuthChallenge = z.object({
-  nonce: z.string(),
-  serverId: z.string(),
-  expiresAt: z.number(),
-});
-export type AuthChallenge = z.infer<typeof zAuthChallenge>;
-
-export const zAuthVerifyRequest = z.object({
-  nonce: z.string(),
-  signature: z.string(),
-});
-export type AuthVerifyRequest = z.infer<typeof zAuthVerifyRequest>;
-
-export const zSessionToken = z.object({
-  token: z.string(),
-  issuedAt: z.number(),
-  expiresAt: z.number(),
-});
-export type SessionToken = z.infer<typeof zSessionToken>;
-
-export const zAuthVerifyResponse = z.object({
-  sessionToken: z.string(),
-  expiresAt: z.number(),
-});
-export type AuthVerifyResponse = z.infer<typeof zAuthVerifyResponse>;
-
-export const zInstanceIdentity = z.object({
-  instanceId: z.string(),
-  hostname: z.string(),
-  createdAt: z.number(),
-  publicKey: z.string(),
-  keyFingerprint: z.string(),
-});
-export type InstanceIdentity = z.infer<typeof zInstanceIdentity>;
-
 /**
- * The a8s connection the console hands to an authenticated browser so the UI
- * can talk to the control plane directly via @berry-agent/client.
+ * The a8s connection an instance resolves to: the control-plane base URL plus
+ * the bearer token the user pasted. berry-claw talks to a8s directly, so this
+ * is just `{ url, token }` read straight off the stored Instance — there is no
+ * console handshake, no challenge/verify, no session token.
  *
- * The console (BFF) holds the product token server-side and only releases it
- * to a verified session — the browser never sees the admin token, and the
- * token never sits in a config file the user edits. `url` is the a8s base
- * (e.g. https://a8s.example.com); `token` is a product-scoped `bp_…` token (or
- * an admin token in single-tenant/dev setups).
+ * `url` is the a8s base (e.g. https://a8s.example.com); `token` is a `bp_…`
+ * product token or a `bs_…` subject-scoped token.
  */
 export const zA8sConnectionInfo = z.object({
   url: z.string().url(),

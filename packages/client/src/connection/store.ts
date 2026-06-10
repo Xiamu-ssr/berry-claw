@@ -121,19 +121,15 @@ export function getStorageError(): string | null {
 }
 
 export function addInstance(instance: Instance): void {
-  // Dedupe by fingerprint when present (same server identity), otherwise by
-  // apiBase (same endpoint = assume same server for now). Callers can show a
-  // confirm dialog *before* this point if they want to warn.
-  const filtered = snapshot.instances.filter((i) => {
-    if (instance.fingerprint && i.fingerprint) return i.fingerprint !== instance.fingerprint;
-    return i.apiBase !== instance.apiBase;
-  });
+  // Dedupe by apiBase (same a8s endpoint = assume same target). Callers can
+  // show a confirm dialog *before* this point if they want to warn.
+  const filtered = snapshot.instances.filter((i) => i.apiBase !== instance.apiBase);
   const nextInstances = [...filtered, instance];
   persist({
     instances: nextInstances,
     // First instance added → auto-activate. Otherwise preserve whatever was
-    // active, unless that active id was purged by the fingerprint dedupe
-    // above, in which case activate the fresh record.
+    // active, unless that active id was purged by the apiBase dedupe above, in
+    // which case activate the fresh record.
     activeId:
       snapshot.activeId && nextInstances.some((i) => i.id === snapshot.activeId)
         ? snapshot.activeId
@@ -161,10 +157,6 @@ export function setActive(id: string | null): void {
     return;
   }
   persist({ ...snapshot, activeId: id });
-}
-
-export function duplicateFingerprint(fingerprint: string): Instance | null {
-  return snapshot.instances.find((i) => i.fingerprint === fingerprint) ?? null;
 }
 
 export function duplicateApiBase(apiBase: string): Instance | null {

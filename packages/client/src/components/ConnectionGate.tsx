@@ -2,8 +2,6 @@ import App from '../App';
 import { useEffect, useRef, useState } from 'react';
 import {
   addInstance,
-  ensureToken,
-  fetchServerIdentity,
   normaliseEndpoint,
   setActive,
   useActiveInstanceId,
@@ -24,9 +22,10 @@ import { AppForInstance } from './AppForInstance';
  * instance id — that forces every child `useState` / WebSocket back to a
  * clean slate, which is exactly what you want when switching backends.
  *
- * In dev mode, `VITE_DEV_PRIVATE_KEY_B64` can seed the first local instance.
- * Normal user-created instances are read from local storage and restored
- * before the setup screen is shown.
+ * In dev mode, `VITE_DEV_A8S_TOKEN` (+ optional `VITE_API_BASE`) can seed the
+ * first instance so local dev skips the paste-token screen. Normal
+ * user-created instances are read from local storage and restored before the
+ * setup screen is shown.
  */
 export function ConnectionGate() {
   const instances = useInstances();
@@ -48,8 +47,8 @@ export function ConnectionGate() {
       return;
     }
 
-    const privateKeyB64 = (import.meta.env.VITE_DEV_PRIVATE_KEY_B64 as string | undefined)?.trim();
-    if (!privateKeyB64) return;
+    const devToken = (import.meta.env.VITE_DEV_A8S_TOKEN as string | undefined)?.trim();
+    if (!devToken) return;
 
     devBootStarted.current = true;
     setDevState('connecting');
@@ -59,20 +58,19 @@ export function ConnectionGate() {
         const apiBase = normaliseEndpoint(
           ((import.meta.env.VITE_API_BASE as string | undefined)?.trim() || DEFAULT_DEV_API_BASE),
         );
-        const privateKeyPem = decodeBase64Ascii(privateKeyB64).trim();
-        const identity = await fetchServerIdentity(apiBase);
+        // Prove the token reaches a8s before persisting.
+        const res = await fetch(`${apiBase}/v1/agents`, {
+          headers: { authorization: `Bearer ${devToken}` },
+        });
+        if (!res.ok) throw new Error(`a8s returned ${res.status}`);
         const candidate: Instance = {
-          id: `dev-${identity.instanceId}`,
-          name: identity.hostname || 'local-dev',
+          id: `dev-${new URL(apiBase).host}`,
+          name: new URL(apiBase).hostname || 'local-dev',
           apiBase,
           wsBase: wsBaseFromApiBase(apiBase),
-          serverInstanceId: identity.instanceId,
-          fingerprint: identity.fingerprint,
-          privateKeyPem,
+          token: devToken,
           addedAt: Date.now(),
         };
-
-        await ensureToken(candidate);
         addInstance(candidate);
         setActive(candidate.id);
       } catch (err) {
@@ -86,14 +84,14 @@ export function ConnectionGate() {
     if (hasKnownInstance) {
       return (
         <div className="fixed inset-0 grid place-items-center bg-gray-950 text-gray-300">
-          <div className="text-sm">Restoring saved berry-claw connection...</div>
+          <div className="text-sm">Restoring saved a8s connection...</div>
         </div>
       );
     }
     if (devState === 'connecting') {
       return (
         <div className="fixed inset-0 grid place-items-center bg-gray-950 text-gray-300">
-          <div className="text-sm">Connecting to local berry-claw...</div>
+          <div className="text-sm">Connecting to local a8s...</div>
         </div>
       );
     }
@@ -102,11 +100,8 @@ export function ConnectionGate() {
   return <AppForInstance key={activeId} instanceId={activeId!} />;
 }
 
-function decodeBase64Ascii(value: string): string {
-  return atob(value);
-}
-
 // Keep the direct App export reachable for anyone who imports this module
 // for testing purposes — the gate itself always goes through the two
 // dedicated surfaces above.
 export { App };
+
