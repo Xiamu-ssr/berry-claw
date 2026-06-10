@@ -100,6 +100,13 @@ export const zAgentFact = z.object({
   workerId: z.string().nullable(),
   /** True once the agent is mounted on a worker (has a live runtime). */
   instantiated: z.boolean(),
+  /**
+   * Free-form labels the agent was created with (owner / name / project /
+   * team / role / leader …). Surfaced straight from a8s listAgents so the
+   * product can compute emergent-team membership (group by labels.project)
+   * without a separate team registry.
+   */
+  labels: z.record(z.string()).optional(),
   /** Hands the agent has mounted (4+1-native; from snapshot). */
   hands: z.array(zHandSummaryFact).optional(),
   /** Loaded skill index (name + description; from snapshot). */

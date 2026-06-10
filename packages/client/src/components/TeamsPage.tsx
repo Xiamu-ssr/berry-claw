@@ -13,58 +13,93 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  UserPlus,
   Users,
-  X,
   XCircle,
 } from 'lucide-react';
 import { showToast } from './Toast';
-import { useAgentFacts, useTeamFacts } from '../facts/useFacts';
+import { useAgentFacts } from '../facts/useFacts';
 import { factStore } from '../facts/store';
+import { listModelCatalog } from '../a8s/agents';
+import {
+  createTeam,
+  deriveTeams,
+  disbandTeammate,
+  loadTeamMessages,
+  loadWorklist,
+  spawnTeammate,
+  type EmergentTeam,
+} from '../a8s/teams';
+import { uniqueStrings } from '../utils/format';
+import { CreateTeamWizard, type CreateTeamValues } from './teams/CreateTeamWizard';
+import { SpawnTeammateModal, type SpawnTeammateValues } from './teams/SpawnTeammateModal';
 import {
   EmptyState,
-  Field,
   IconButton,
   InlineSpinner,
   Pill,
   PrimaryButton,
   SecondaryButton,
   SectionCard,
-  SelectInput,
   TextInput,
   WorkbenchPage,
 } from './workbench';
-import type { AgentFact, TeamFact, TeamMessage, TeamState, WorklistTask, WorklistTaskStatus } from '@berry-agent/claw-contracts';
-
-interface AgentSummary {
-  id: string;
-  entry: { name: string; model: string; project?: string };
-}
+import type {
+  AgentFact,
+  ModelCatalogItem,
+  TeamMessage,
+  WorklistTask,
+  WorklistTaskStatus,
+} from '@berry-agent/claw-contracts';
 
 export default function TeamsPage() {
-  const agentFacts = useAgentFacts();
-  const teamFacts = useTeamFacts();
-  const [selectedLeader, setSelectedLeader] = useState<string | null>(teamFacts[0]?.leaderId ?? null);
+  const agents = useAgentFacts();
+  const teams = useMemo(() => deriveTeams(agents), [agents]);
+
+  const [selectedLeader, setSelectedLeader] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<ModelCatalogItem[]>([]);
+
+  const takenIds = useMemo(() => agents.map((a) => a.id), [agents]);
+  const knownProjects = useMemo(() => uniqueStrings(teams.map((t) => t.project)).sort(), [teams]);
 
   useEffect(() => {
-    if (!teamFacts.length) {
-      setSelectedLeader(null);
-      return;
+    listModelCatalog().then(setModels).catch(() => setModels([]));
+  }, []);
+
+  // Keep a valid selection as teams come and go.
+  useEffect(() => {
+    if (!teams.length) { setSelectedLeader(null); return; }
+    if (!selectedLeader || !teams.some((t) => t.leaderId === selectedLeader)) {
+      setSelectedLeader(teams[0].leaderId);
     }
-    if (!selectedLeader || !teamFacts.some((team) => team.leaderId === selectedLeader)) {
-      setSelectedLeader(teamFacts[0]?.leaderId ?? null);
-    }
-  }, [selectedLeader, teamFacts]);
+  }, [teams, selectedLeader]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return teamFacts;
-    return teamFacts.filter((team) => [team.name, team.leaderId, team.project].join(' ').toLowerCase().includes(q));
-  }, [query, teamFacts]);
+    if (!q) return teams;
+    return teams.filter((t) => [t.name, t.leaderId, t.project].join(' ').toLowerCase().includes(q));
+  }, [query, teams]);
 
-  const eligibleLeaders = agentFacts;
-  const selectedTeam = teamFacts.find((team) => team.leaderId === selectedLeader) ?? teamFacts[0];
+  const selectedTeam = teams.find((t) => t.leaderId === selectedLeader);
+
+  const createFromWizard = async (values: CreateTeamValues) => {
+    setBusy(true);
+    try {
+      await createTeam(values);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '组建团队失败', 'error');
+      return;
+    } finally {
+      setBusy(false);
+    }
+    showToast('团队已组建');
+    setCreating(false);
+    setSelectedLeader(values.leaderId);
+    void factStore.hydrate('agent');
+  };
 
   return (
     <WorkbenchPage
@@ -73,7 +108,7 @@ export default function TeamsPage() {
       actions={
         <PrimaryButton onClick={() => setCreating(true)}>
           <Plus size={14} />
-          新建团队
+          组建团队
         </PrimaryButton>
       }
     >
@@ -81,39 +116,40 @@ export default function TeamsPage() {
         <TeamStage
           teams={filtered}
           selectedTeam={selectedTeam}
-          agents={agentFacts}
           query={query}
           onQueryChange={setQuery}
           onSelect={(team) => setSelectedLeader(team.leaderId)}
         />
 
-        <div className="mt-4 space-y-4">
-          {creating && (
-            <NewTeamPanel
-              agents={eligibleLeaders.map((agent) => ({
-                id: agent.id,
-                entry: { name: agent.name, model: agent.model },
-              }))}
-              onClose={() => setCreating(false)}
-              onCreated={(leaderId) => {
-                setCreating(false);
-                setSelectedLeader(leaderId);
-              }}
-            />
-          )}
-
-          {!selectedLeader ? (
+        <div className="mt-4">
+          {!selectedTeam ? (
             <EmptyState
               icon={<Users size={24} />}
               title="还没有团队"
-              body="先给一个 agent 绑定 project，然后把它启动为 leader。teammate 后续由 leader 通过 SDK 工具生成。"
-              action={<PrimaryButton onClick={() => setCreating(true)}><Plus size={14} />新建团队</PrimaryButton>}
+              body="组建一个团队:起名、选共享项目、给 leader 选模型。之后添加 teammate,或让 leader 在会话里自行 spawn。"
+              action={<PrimaryButton onClick={() => setCreating(true)}><Plus size={14} />组建团队</PrimaryButton>}
             />
           ) : (
-            <TeamDetail leaderId={selectedLeader} onBack={() => setSelectedLeader(null)} />
+            <TeamDetail
+              key={selectedTeam.leaderId}
+              team={selectedTeam}
+              catalog={models}
+              takenIds={takenIds}
+              onBack={() => setSelectedLeader(null)}
+            />
           )}
         </div>
       </div>
+
+      <CreateTeamWizard
+        open={creating}
+        catalog={models}
+        takenIds={takenIds}
+        knownProjects={knownProjects}
+        onCancel={() => setCreating(false)}
+        onCreate={createFromWizard}
+        busy={busy}
+      />
     </WorkbenchPage>
   );
 }
@@ -121,22 +157,20 @@ export default function TeamsPage() {
 function TeamStage({
   teams,
   selectedTeam,
-  agents,
   query,
   onQueryChange,
   onSelect,
 }: {
-  teams: TeamFact[];
-  selectedTeam?: TeamFact;
-  agents: AgentFact[];
+  teams: EmergentTeam[];
+  selectedTeam?: EmergentTeam;
   query: string;
   onQueryChange: (query: string) => void;
-  onSelect: (team: TeamFact) => void;
+  onSelect: (team: EmergentTeam) => void;
 }) {
   const members = selectedTeam
     ? [
-        { id: selectedTeam.leaderId, role: 'leader' },
-        ...selectedTeam.teammates.map((mate) => ({ id: mate.agentId, role: mate.role })),
+        { id: selectedTeam.leaderId, name: selectedTeam.name, role: 'leader' },
+        ...selectedTeam.teammates.map((m) => ({ id: m.id, name: m.name, role: m.labels?.role ?? 'member' })),
       ]
     : [];
 
@@ -168,16 +202,13 @@ function TeamStage({
                 还没有团队成员
               </div>
             ) : (
-              members.map((member) => {
-                const agent = agents.find((item) => item.id === member.id);
-                return (
-                  <div key={`${member.id}:${member.role}`} className="text-center">
-                    <TeamPortrait id={member.id} name={agent?.name ?? member.id} active={member.role === 'leader'} />
-                    <div className="mt-2 max-w-28 truncate text-xs font-medium text-zinc-100">{agent?.name ?? member.id}</div>
-                    <div className="max-w-28 truncate text-[10px] text-zinc-600">{member.role}</div>
-                  </div>
-                );
-              })
+              members.map((member) => (
+                <div key={`${member.id}:${member.role}`} className="text-center">
+                  <TeamPortrait id={member.id} name={member.name} active={member.role === 'leader'} />
+                  <div className="mt-2 max-w-28 truncate text-xs font-medium text-zinc-100">{member.name}</div>
+                  <div className="max-w-28 truncate text-[10px] text-zinc-600">{member.role}</div>
+                </div>
+              ))
             )}
           </div>
         </div>
@@ -227,132 +258,79 @@ function TeamPortrait({ id, name, active }: { id: string; name: string; active?:
   );
 }
 
-function NewTeamPanel({
-  agents,
-  onClose,
-  onCreated,
+function TeamDetail({
+  team,
+  catalog,
+  takenIds,
+  onBack,
 }: {
-  agents: AgentSummary[];
-  onClose: () => void;
-  onCreated: (leaderId: string) => void;
+  team: EmergentTeam;
+  catalog: ModelCatalogItem[];
+  takenIds: string[];
+  onBack: () => void;
 }) {
-  const [name, setName] = useState('');
-  const [leaderId, setLeaderId] = useState(agents[0]?.id ?? '');
-  const [busy, setBusy] = useState(false);
-  const leader = agents.find((agent) => agent.id === leaderId);
-
-  const create = async () => {
-    if (!leaderId) return;
-    // Team orchestration (start/disband/worklist/messages) was a console
-    // backend capability. a8s has no team API yet, so we can't start a team
-    // from the console — surface that instead of POSTing a dead route.
-    showToast({
-      variant: 'error',
-      title: '团队功能暂未接入控制台',
-      message: 'a8s 尚未提供团队编排接口;团队由 leader agent 在会话内通过 SDK 工具自行组建。',
-    });
-  };
-
-  return (
-    <SectionCard
-      title="新建团队"
-      subtitle="只需要名字和 leader。共享 project、worklist、team 文件会由后端创建。"
-      icon={<Users size={15} />}
-      action={<IconButton title="Close" onClick={onClose}><X size={14} /></IconButton>}
-    >
-      {agents.length === 0 ? (
-        <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-3 text-sm text-amber-200">
-          当前没有绑定 project 的 agent。先到智能体页设置项目根目录。
-        </div>
-      ) : (
-        <>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="团队名称">
-              <TextInput value={name} onChange={(event) => setName(event.target.value)} placeholder="Frontend squad" className="w-full" />
-            </Field>
-            <Field label="Leader">
-              <SelectInput value={leaderId} onChange={(event) => setLeaderId(event.target.value)} className="w-full">
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.entry.name} ({agent.id})
-                  </option>
-                ))}
-              </SelectInput>
-            </Field>
-          </div>
-          {leader?.entry.project && (
-            <div className="mt-3 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2 font-mono text-xs text-zinc-500">
-              {leader.entry.project}
-            </div>
-          )}
-          <div className="mt-4 flex justify-end gap-2">
-            <SecondaryButton onClick={onClose}>取消</SecondaryButton>
-            <PrimaryButton onClick={create} disabled={!leaderId || busy}>
-              {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              启动团队
-            </PrimaryButton>
-          </div>
-        </>
-      )}
-    </SectionCard>
-  );
-}
-
-function TeamDetail({ leaderId, onBack }: { leaderId: string; onBack: () => void }) {
-  const agentFacts = useAgentFacts();
-  const [team, setTeam] = useState<TeamState | null>(null);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
   const [tasks, setTasks] = useState<WorklistTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [disbanding, setDisbanding] = useState(false);
+  const [spawning, setSpawning] = useState(false);
+  const [spawnOpen, setSpawnOpen] = useState(false);
 
-  const leader = agentFacts.find((agent) => agent.id === leaderId);
+  const fetchShared = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [worklist, log] = await Promise.all([
+        loadWorklist(team.project),
+        loadTeamMessages(team.project),
+      ]);
+      setTasks(worklist);
+      setMessages(log);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '读取团队状态失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [team.project]);
 
-  // Team read paths (state / messages / worklist) were console-backend routes.
-  // a8s has no team API, and team facts never hydrate under direct-connect, so
-  // this detail view is currently unreachable; the fetch is a no-op rather than
-  // hitting a dead route. Kept wired so re-enabling is a one-function change.
-  const fetchAll = useCallback(async () => {
-    setLoading(false);
-  }, []);
+  useEffect(() => { void fetchShared(); }, [fetchShared]);
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
-
-  const disband = async () => {
-    showToast({
-      variant: 'error',
-      title: '团队功能暂未接入控制台',
-      message: 'a8s 尚未提供团队编排接口。',
-    });
+  const onSpawn = async (values: SpawnTeammateValues) => {
+    setSpawning(true);
+    try {
+      await spawnTeammate({
+        teammateId: values.teammateId,
+        role: values.role,
+        leaderId: team.leaderId,
+        project: team.project,
+        model: values.model,
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '添加 teammate 失败', 'error');
+      return;
+    } finally {
+      setSpawning(false);
+    }
+    showToast(`已添加 ${values.role}`);
+    setSpawnOpen(false);
+    void factStore.hydrate('agent');
   };
 
-  const chatWithLeader = async () => {
-    // Selection is frontend-owned now — set it locally and jump to the inbox.
-    factStore.setSelectedAgent(leaderId);
-    window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: leaderId }));
+  const onDisband = async (teammate: AgentFact) => {
+    if (!window.confirm(`从团队移除 "${teammate.name}"?其 SDK 数据保留在磁盘。`)) return;
+    try {
+      await disbandTeammate(teammate.id);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '移除失败', 'error');
+      return;
+    }
+    showToast('已移除 teammate');
+    void factStore.hydrate('agent');
+  };
+
+  const chatWithLeader = () => {
+    factStore.setSelectedAgent(team.leaderId);
+    window.dispatchEvent(new CustomEvent('berry:select-agent', { detail: team.leaderId }));
     window.dispatchEvent(new CustomEvent('berry:switch-tab', { detail: 'inbox' }));
   };
-
-  if (loading) {
-    return (
-      <SectionCard>
-        <InlineSpinner label="读取团队状态" />
-      </SectionCard>
-    );
-  }
-
-  if (!team) {
-    return (
-      <EmptyState
-        icon={<Users size={24} />}
-        title="团队不存在"
-        body="它可能已经被解散，或 leader agent 不再存在。"
-        action={<SecondaryButton onClick={onBack}><ArrowLeft size={13} />返回</SecondaryButton>}
-      />
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -365,58 +343,83 @@ function TeamDetail({ leaderId, onBack }: { leaderId: string; onBack: () => void
             </button>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-lg font-semibold text-zinc-50">{team.name}</h2>
-              <Pill tone="good">leader {leaderId}</Pill>
+              <Pill tone="good">leader {team.leaderId}</Pill>
               <Pill>{team.teammates.length} teammates</Pill>
             </div>
             <div className="mt-1 truncate font-mono text-xs text-zinc-500">{team.project}</div>
           </div>
           <div className="flex items-center gap-2">
-            <SecondaryButton onClick={fetchAll}>
+            <SecondaryButton onClick={fetchShared}>
               <RefreshCw size={13} />
               刷新
+            </SecondaryButton>
+            <SecondaryButton onClick={() => setSpawnOpen(true)}>
+              <UserPlus size={14} />
+              添加 teammate
             </SecondaryButton>
             <PrimaryButton onClick={chatWithLeader}>
               <MessageSquare size={14} />
               找 leader
             </PrimaryButton>
-            <IconButton title="Disband team" tone="bad" onClick={disband} disabled={disbanding}>
-              {disbanding ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={15} />}
-            </IconButton>
           </div>
         </div>
       </SectionCard>
 
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_minmax(0,1fr)]">
-        <MembersPanel team={team} leaderName={leader?.name ?? leaderId} />
-        <WorklistPanel tasks={tasks} />
-        <MessageLog messages={messages} />
+        <MembersPanel team={team} onDisband={onDisband} />
+        {loading ? (
+          <SectionCard><InlineSpinner label="读取 worklist" /></SectionCard>
+        ) : (
+          <WorklistPanel tasks={tasks} />
+        )}
+        {loading ? (
+          <SectionCard><InlineSpinner label="读取消息" /></SectionCard>
+        ) : (
+          <MessageLog messages={messages} leaderId={team.leaderId} />
+        )}
       </div>
+
+      <SpawnTeammateModal
+        open={spawnOpen}
+        catalog={catalog}
+        takenIds={takenIds}
+        onCancel={() => setSpawnOpen(false)}
+        onSpawn={onSpawn}
+        busy={spawning}
+      />
     </div>
   );
 }
 
-function MembersPanel({ team, leaderName }: { team: TeamState; leaderName: string }) {
+function MembersPanel({ team, onDisband }: { team: EmergentTeam; onDisband: (teammate: AgentFact) => void }) {
   return (
     <SectionCard title="成员" icon={<Users size={15} />}>
       <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 p-3">
         <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
           <Crown size={14} />
-          {leaderName}
+          {team.name}
         </div>
         <div className="mt-1 font-mono text-xs text-amber-300/70">{team.leaderId}</div>
-        <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-400/70">Leader</div>
+        <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-400/70">Leader · {team.leader.model || '—'}</div>
       </div>
       <div className="mt-3 space-y-2">
         {team.teammates.length === 0 ? (
           <div className="rounded-lg bg-black/10 px-3 py-6 text-center text-xs text-zinc-600">
-            还没有 teammate。让 leader 在聊天里调用 spawn_teammate。
+            还没有 teammate。点上方「添加 teammate」,或让 leader 在聊天里调用 spawn_teammate。
           </div>
         ) : (
           team.teammates.map((mate) => (
             <div key={mate.id} className="rounded-lg border border-white/[0.07] bg-black/10 p-3">
-              <div className="text-sm font-medium text-zinc-100">{mate.role}</div>
-              <div className="mt-1 font-mono text-xs text-zinc-500">{mate.id}</div>
-              {mate.model && <div className="mt-1 text-xs text-zinc-600">{mate.model}</div>}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-zinc-100">{mate.labels?.role ?? mate.name}</div>
+                  <div className="mt-1 truncate font-mono text-xs text-zinc-500">{mate.id}</div>
+                  {mate.model && <div className="mt-1 text-xs text-zinc-600">{mate.model}</div>}
+                </div>
+                <IconButton title="移除" tone="bad" onClick={() => onDisband(mate)}>
+                  <Trash2 size={14} />
+                </IconButton>
+              </div>
             </div>
           ))
         )}
@@ -436,7 +439,7 @@ function WorklistPanel({ tasks }: { tasks: WorklistTask[] }) {
     <SectionCard title={`Worklist · ${tasks.length}`} icon={<ListChecks size={15} />}>
       {tasks.length === 0 ? (
         <div className="rounded-lg bg-black/10 px-3 py-6 text-center text-xs text-zinc-600">
-          暂无任务。Worklist 应由 agent 工具维护，UI 只做观测。
+          暂无任务。Worklist 由 leader / teammate 的协作工具维护,这里实时观测。
         </div>
       ) : (
         <div className="max-h-[calc(100vh-260px)] space-y-4 overflow-y-auto pr-1">
@@ -472,7 +475,8 @@ function WorklistPanel({ tasks }: { tasks: WorklistTask[] }) {
   );
 }
 
-function MessageLog({ messages }: { messages: TeamMessage[] }) {
+function MessageLog({ messages, leaderId }: { messages: TeamMessage[]; leaderId: string }) {
+  const isLeader = (who: string) => who === leaderId || who === '@leader';
   return (
     <SectionCard title={`Agent 消息 · ${messages.length}`} icon={<MessageSquare size={15} />}>
       {messages.length === 0 ? (
@@ -485,13 +489,13 @@ function MessageLog({ messages }: { messages: TeamMessage[] }) {
             <div
               key={message.id}
               className={`rounded-lg border p-3 ${
-                message.from === '@leader'
+                isLeader(message.from)
                   ? 'border-amber-400/20 bg-amber-400/10'
                   : 'border-white/[0.07] bg-black/10'
               }`}
             >
               <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500">
-                <span className={message.from === '@leader' ? 'font-medium text-amber-300' : 'font-medium text-zinc-300'}>{message.from}</span>
+                <span className={isLeader(message.from) ? 'font-medium text-amber-300' : 'font-medium text-zinc-300'}>{message.from}</span>
                 <span>→</span>
                 <span>{message.to}</span>
                 <span className="ml-auto">{new Date(message.ts).toLocaleTimeString()}</span>

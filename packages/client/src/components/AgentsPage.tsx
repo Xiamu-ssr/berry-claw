@@ -9,7 +9,7 @@ import { AgentModulePanel } from './agents/AgentModules';
 import { emptyAgentForm, type AgentForm, type DetailTab, type InspectRuntime } from './agents/types';
 import { createAgent, deleteAgent as deleteAgentOnA8s, inspectAgent, listModelCatalog, patchAgentSpec } from '../a8s/agents';
 import { switchModel, setReasoningEffort } from '../a8s/data';
-import { useAgentFacts, useSystemFact, useTeamFacts } from '../facts/useFacts';
+import { useAgentFacts, useSystemFact } from '../facts/useFacts';
 import { factStore } from '../facts/store';
 import { uniqueStrings } from '../utils/format';
 import type {
@@ -26,7 +26,6 @@ import {
 
 export default function AgentsPage() {
   const agents = useAgentFacts();
-  const teams = useTeamFacts();
   const system = useSystemFact();
   const [selectedId, setSelectedId] = useState<string | undefined>(agents[0]?.id);
   const selected = agents.find((agent) => agent.id === selectedId) ?? agents[0];
@@ -41,11 +40,12 @@ export default function AgentsPage() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<AgentForm>(emptyAgentForm);
 
-  // Known project roots come from team membership (an a8s AgentFact carries no
-  // project of its own), feeding the wizard's ProjectPicker.
+  // Known project roots come from the agent roster's labels (an AgentFact
+  // carries labels.project straight from a8s), feeding the wizard's
+  // ProjectPicker.
   const knownProjects = useMemo(
-    () => uniqueStrings(teams.map((t) => t.project)).sort(),
-    [teams],
+    () => uniqueStrings(agents.map((a) => a.labels?.project ?? '').filter(Boolean)).sort(),
+    [agents],
   );
   const takenIds = useMemo(() => agents.map((a) => a.id), [agents]);
 

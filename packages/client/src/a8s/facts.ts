@@ -28,12 +28,13 @@ export async function loadAgentFacts(): Promise<AgentFact[]> {
     agents.map(async (loc): Promise<AgentFact> => {
       const base: AgentFact = {
         id: loc.agentId,
-        name: loc.agentId,
+        name: loc.labels?.name ?? loc.agentId,
         model: '',
         provider: '',
         status: 'idle',
         workerId: loc.workerId,
         instantiated: loc.workerId !== null,
+        labels: loc.labels,
       };
       // An unscheduled agent (no worker) has no live runtime to snapshot;
       // return the roster-only fact rather than failing the whole load.
