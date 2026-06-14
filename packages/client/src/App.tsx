@@ -31,8 +31,6 @@ const SettingsPage = lazy(() => import('./components/SettingsPage'));
 const AgentsPage = lazy(() => import('./components/AgentsPage'));
 const ProjectsPage = lazy(() => import('./components/ProjectsPage'));
 const TeamsPage = lazy(() => import('./components/TeamsPage'));
-const SkillMarketPage = lazy(() => import('./components/SkillMarketPage'));
-const McpPage = lazy(() => import('./components/McpPage'));
 const AuditPage = lazy(() => import('./components/AuditPage'));
 export default function App() {
   const [activeView, setActiveView] = useState<ClientView>(() => {
@@ -314,7 +312,7 @@ export default function App() {
     const handleSwitchTab = (event: Event) => {
       const detail = (event as CustomEvent<string>).detail;
       const next = detail === 'chat' ? 'inbox' : detail;
-      if (next && ['inbox', 'projects', 'team', 'agents', 'audit', 'settings', 'skills', 'mcp'].includes(next)) {
+      if (next && ['inbox', 'projects', 'team', 'agents', 'audit', 'settings'].includes(next)) {
         setActiveView(next as ClientView);
         localStorage.setItem('berry-active-view', next);
       }
@@ -545,8 +543,6 @@ export default function App() {
             {activeView === 'agents' && <AgentsPage />}
             {activeView === 'audit' && <AuditPage />}
             {activeView === 'settings' && <SettingsPage />}
-            {activeView === 'skills' && <SkillMarketPage />}
-            {activeView === 'mcp' && <McpPage />}
           </Suspense>
         </main>
       </div>

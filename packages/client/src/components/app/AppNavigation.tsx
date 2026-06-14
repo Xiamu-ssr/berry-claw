@@ -7,10 +7,8 @@ import {
   FolderKanban,
   Inbox,
   PanelLeftClose,
-  Plug,
   Settings,
   ShieldCheck,
-  Sparkles,
   Users,
 } from 'lucide-react';
 import type { AgentFact } from '@berry-agent/claw-contracts';
@@ -37,8 +35,6 @@ export function MobileTopNav({
     { id: 'agents', label: '智能体', icon: <Bot size={14} /> },
     { id: 'audit', label: '审计', icon: <ShieldCheck size={14} /> },
     { id: 'settings', label: '设置', icon: <Settings size={14} /> },
-    { id: 'skills', label: 'Skill', icon: <Sparkles size={14} /> },
-    { id: 'mcp', label: 'MCP', icon: <Plug size={14} /> },
   ];
 
   return (
@@ -183,20 +179,6 @@ export function ClientSidebar({
         </SidebarGroup>
 
         <SidebarGroup title="Settings" collapsed={collapsed}>
-          <SidebarItem
-            collapsed={collapsed}
-            active={activeView === 'skills'}
-            icon={<Sparkles size={16} />}
-            label="Skills"
-            onClick={() => selectView('skills', onViewChange)}
-          />
-          <SidebarItem
-            collapsed={collapsed}
-            active={activeView === 'mcp'}
-            icon={<Plug size={16} />}
-            label="MCP"
-            onClick={() => selectView('mcp', onViewChange)}
-          />
           <SidebarItem
             collapsed={collapsed}
             active={activeView === 'settings'}
