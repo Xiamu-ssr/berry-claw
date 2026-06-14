@@ -111,6 +111,67 @@ The圈画 geometry/url math is pure and unit-tested in
 `client/src/components/workspace/browserAnnotation.ts`; the DOM/Electron parts
 (capture, canvas crop) stay in `BrowserRail.tsx` / `desktop/src/browser-surface.cjs`.
 
+## Business model: berry-claw × 雪山引擎
+
+```
+运营者 (operator)                          产品用户 (product user)
+  │                                            │
+  │ admin token (BERRY_A8S_ADMIN_TOKEN)        │ product token (bp_… / bs_…)
+  │ (env var / SSH 拿, 不给任何人)               │ (运营者 mint 给你的)
+  ▼                                            ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ 雪山引擎 (a8s)                               读写分离               │
+│                                                                    │
+│  运营者可做:                                                       │
+│    - 配模型供应商 (PUT models-template)                            │
+│    - 注册 Skill 到市场 (POST skills)                               │
+│    - 创建/删除 Hand 配方 (POST/DELETE hand-recipes)                 │
+│    - 铸产品根 token (POST credentials)                             │
+│    - 管机器 / worker                                               │
+│                                                                    │
+│  产品用户可做(用 bp_/bs_ token):                                  │
+│    - 读模型目录 (GET models-template) → model picker              │
+│    - 浏览 Skill 市场 (GET skills) + 安装到自己 agent              │
+│    - 浏览 Hand 市场 (GET hand-recipes) → 了解可用环境              │
+│    - 创建/删除 agent (POST/DELETE agents) → 自动 owner 盖章       │
+│    - 对话 (send, SSE stream)                                      │
+│    - 读自己的 sessions / 用量 / teams                              │
+│    - 看不到别人的 agent (scope filter)                              │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Token 层级
+
+| Token | 前缀 | 持有者 | scope | 能做 |
+|---|---|---|---|---|
+| admin | (env) | 运营者 | `'*'` (全局) | 一切(含写配置、铸产品 token) |
+| product root | `bp_` | 产品后端 | `{product}` | 该产品下所有 agent + 读只读目录 |
+| subject | `bs_` | 一个终端用户 | `{product, subject}` | 仅 `product:subject` 下的 agent |
+
+- 产品码(product)**无需预注册**——`berry-a8s mint --product <码>` 首次铸 token 时即时创建。
+- `bp_` root token 不应暴露给浏览器;产品后端用它给每个用户铸 `bs_` 子 token。
+- berry-claw 当前是「单产品运营者自用」模式:运营者用 mint 铸了一个 bp_ 交给自己的 Mac app,**不区分子用户**(等有多用户需求时,用 `bs_` subject token 区分)。
+
+### Skill / MCP / Hand 在产品视角是什么
+
+| 概念 | 对运营者 | 对产品用户 |
+|---|---|---|
+| **Skill** | 写一个 SKILL.md + 注册到市场 | 从市场浏览 + 一键安装到自己 agent |
+| **Hand** | 配方 = 一组工具+MCP 绑定到一个执行环境;运营者创建配方,绑定机器 | 浏览市场 → 知道「哪些能力可用」(不编辑配方) |
+| **MCP** | MCP 服务器跑在机器上,由 .mcp.json 声明;Hand 引用 server name | 不可见(MCP 是 Hand 的实现细节,产品用户不直接操作 MCP) |
+
+### claw 界面中各页面 vs a8s 的映射
+
+| claw 页面 | 对应 a8s API | 产品用户可用? |
+|---|---|---|
+| 智能体 (Agents) | agents CRUD + send + sessions | ✅ |
+| 收件箱 (Inbox) | agents list + 最新消息 | ✅ |
+| 团队 (Teams) | projects worklist + messages + agents by label | ✅ |
+| 审计 (Audit) | usage (scope-filtered) | ✅ |
+| Skill | skills list + install | ✅ 浏览+安装 |
+| MCP | hand-recipes list (只读) | ✅ 浏览(MCP 页本质是 Hand 市场的「环境」视角) |
+| 设置 (Settings) | models-template (只读) | ✅ 浏览模型;不可改供应商配置 |
+
 ## Hard rules for this codebase
 
 - No agent engine, no hosts, no in-process Worker, no agent/model/provider
@@ -118,3 +179,4 @@ The圈画 geometry/url math is pure and unit-tested in
   stop and call a8s instead.
 - One source of truth: agent data comes from a8s. Don't cache a parallel copy.
 - The front-end is the product; keep any backend boring.
+- **读只读目录(models/skills/hand-recipes)对产品 token 开放;写/注册/配置只给 admin。** 这是 a8s 的读写分离原则。
