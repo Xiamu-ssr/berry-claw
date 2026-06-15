@@ -105,13 +105,13 @@ export default function AgentsPage() {
     });
   }, [agents, query]);
 
-  const startCreate = () => {
-    void refetchModels();
+  const startCreate = async () => {
+    await refetchModels();
     setWizardOpen(true);
   };
 
-  const startEdit = (agent: AgentFact) => {
-    void refetchModels();
+  const startEdit = async (agent: AgentFact) => {
+    await refetchModels();
     setDetailTab('context');
     setForm({
       ...emptyAgentForm(),
