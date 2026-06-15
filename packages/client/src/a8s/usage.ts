@@ -29,7 +29,7 @@ export type {
 /** Cluster-wide usage rollup for the overview. */
 export async function fetchOperatorUsage(): Promise<OperatorUsageResponse> {
   const client = await a8sClient();
-  return client.operatorUsage();
+  return client.usage();
 }
 
 /** One agent's usage summary (model breakdown, daily trend, top tools). */
